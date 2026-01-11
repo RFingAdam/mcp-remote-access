@@ -1,0 +1,21 @@
+[project]
+name = "mcp-remote-access"
+version = "0.1.0"
+description = "MCP server for SSH and UART remote device access"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0.0",
+    "paramiko>=3.4.0",
+    "pyserial>=3.5",
+]
+
+[project.scripts]
+mcp-remote-access = "mcp_remote_access.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_remote_access"]
