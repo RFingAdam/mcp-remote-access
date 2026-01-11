@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 120">
+  <defs>
+    <linearGradient id="termGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#16213e"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Terminal window -->
+  <rect x="20" y="15" width="90" height="70" rx="6" fill="url(#termGrad)" stroke="#4a5568" stroke-width="1.5"/>
+
+  <!-- Terminal dots -->
+  <circle cx="32" cy="26" r="3" fill="#fc8181"/>
+  <circle cx="42" cy="26" r="3" fill="#f6e05e"/>
+  <circle cx="52" cy="26" r="3" fill="#68d391"/>
+
+  <!-- Terminal prompt -->
+  <text x="30" y="52" font-family="monospace" font-size="11" fill="#68d391">$_</text>
+  <rect x="30" y="60" width="35" height="2" rx="1" fill="#4a5568"/>
+  <rect x="30" y="68" width="25" height="2" rx="1" fill="#4a5568"/>
+
+  <!-- Connection line 1 (SSH) -->
+  <path d="M 115 40 Q 145 40 155 50 L 175 50" stroke="#68d391" stroke-width="2" fill="none" stroke-dasharray="4,2">
+    <animate attributeName="stroke-dashoffset" from="12" to="0" dur="1s" repeatCount="indefinite"/>
+  </path>
+
+  <!-- Connection line 2 (Serial) -->
+  <path d="M 115 60 Q 145 60 155 70 L 175 70" stroke="#63b3ed" stroke-width="2" fill="none" stroke-dasharray="4,2">
+    <animate attributeName="stroke-dashoffset" from="12" to="0" dur="1.2s" repeatCount="indefinite"/>
+  </path>
+
+  <!-- SSH icon box -->
+  <rect x="180" y="35" width="30" height="30" rx="4" fill="none" stroke="#68d391" stroke-width="1.5"/>
+  <text x="187" y="56" font-family="monospace" font-size="10" font-weight="bold" fill="#68d391">SSH</text>
+
+  <!-- Serial icon box -->
+  <rect x="180" y="55" width="30" height="30" rx="4" fill="none" stroke="#63b3ed" stroke-width="1.5"/>
+  <text x="185" y="76" font-family="monospace" font-size="8" font-weight="bold" fill="#63b3ed">SER</text>
+
+  <!-- Arrow to server -->
+  <path d="M 215 50 L 235 50 M 230 45 L 235 50 L 230 55" stroke="#a0aec0" stroke-width="2" fill="none"/>
+  <path d="M 215 70 L 235 70 M 230 65 L 235 70 L 230 75" stroke="#a0aec0" stroke-width="2" fill="none"/>
+
+  <!-- Remote server icon -->
+  <rect x="240" y="40" width="50" height="40" rx="4" fill="url(#termGrad)" stroke="#4a5568" stroke-width="1.5"/>
+  <rect x="248" y="50" width="12" height="8" rx="1" fill="#68d391" opacity="0.8"/>
+  <rect x="248" y="62" width="12" height="8" rx="1" fill="#63b3ed" opacity="0.8"/>
+  <circle cx="275" cy="54" r="3" fill="#68d391">
+    <animate attributeName="opacity" values="1;0.4;1" dur="2s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="275" cy="66" r="3" fill="#63b3ed">
+    <animate attributeName="opacity" values="1;0.4;1" dur="2.5s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Title -->
+  <text x="300" y="55" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="600" fill="#e2e8f0">MCP</text>
+  <text x="300" y="75" font-family="system-ui, -apple-system, sans-serif" font-size="12" fill="#a0aec0">Remote Access</text>
+</svg>

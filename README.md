@@ -1,4 +1,18 @@
-# MCP Remote Access
+<p align="center">
+  <img src="assets/logo.svg" alt="MCP Remote Access" width="400">
+</p>
+
+<p align="center">
+  <strong>SSH & Serial port access for Claude Code via MCP</strong>
+</p>
+
+<p align="center">
+  <a href="#installation">Installation</a> •
+  <a href="#features">Features</a> •
+  <a href="#usage-examples">Usage</a>
+</p>
+
+---
 
 An MCP server providing SSH and UART/serial port access for Claude Code. Enables direct control of remote devices like Raspberry Pi, embedded systems, and IoT devices.
 
@@ -22,40 +36,28 @@ An MCP server providing SSH and UART/serial port access for Claude Code. Enables
 
 ## Installation
 
-### 1. Install with uv (recommended)
+### 1. Clone and install
 
 ```bash
-cd /home/swamp/projects/github/mcp-remote-access
+git clone https://github.com/RFingAdam/mcp-remote-access.git
+cd mcp-remote-access
 uv pip install -e .
-```
-
-Or install dependencies directly:
-
-```bash
-uv pip install mcp paramiko pyserial
 ```
 
 ### 2. Add to Claude Code
 
-Add this to your Claude Code MCP settings (`~/.claude/claude_desktop_config.json` or via `claude mcp add`):
-
 ```bash
-claude mcp add remote-access -- uv run --directory /home/swamp/projects/github/mcp-remote-access mcp-remote-access
+claude mcp add remote-access -- uv run --directory /path/to/mcp-remote-access mcp-remote-access
 ```
 
-Or manually edit `~/.claude.json`:
+Or manually add to `~/.claude.json`:
 
 ```json
 {
   "mcpServers": {
     "remote-access": {
       "command": "uv",
-      "args": [
-        "run",
-        "--directory",
-        "/home/swamp/projects/github/mcp-remote-access",
-        "mcp-remote-access"
-      ]
+      "args": ["run", "--directory", "/path/to/mcp-remote-access", "mcp-remote-access"]
     }
   }
 }
