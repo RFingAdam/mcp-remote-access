@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""MCP server providing SSH and UART remote access tools."""
+"""MCP server providing SSH and UART remote access tools for IoT/embedded development."""
 
 import asyncio
-import base64
-import io
 import os
+import time
 from typing import Any
 
 import paramiko
@@ -260,6 +259,129 @@ def create_server() -> Server:
                     "properties": {},
                 },
             ),
+            # NEW: Hardware control tools for embedded development
+            Tool(
+                name="serial_set_dtr",
+                description="Set DTR (Data Terminal Ready) line state. Used for device reset on many boards.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "connection_id": {
+                            "type": "string",
+                            "description": "Connection ID from serial_connect",
+                        },
+                        "state": {
+                            "type": "boolean",
+                            "description": "DTR state (true=high, false=low)",
+                        },
+                    },
+                    "required": ["connection_id", "state"],
+                },
+            ),
+            Tool(
+                name="serial_set_rts",
+                description="Set RTS (Request To Send) line state. Used for bootloader entry on ESP32/STM32.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "connection_id": {
+                            "type": "string",
+                            "description": "Connection ID from serial_connect",
+                        },
+                        "state": {
+                            "type": "boolean",
+                            "description": "RTS state (true=high, false=low)",
+                        },
+                    },
+                    "required": ["connection_id", "state"],
+                },
+            ),
+            Tool(
+                name="serial_reset_device",
+                description="Reset an embedded device using DTR/RTS sequence. Supports ESP32, STM32, and generic reset.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "connection_id": {
+                            "type": "string",
+                            "description": "Connection ID from serial_connect",
+                        },
+                        "method": {
+                            "type": "string",
+                            "description": "Reset method: 'esp32' (into app), 'esp32_bootloader' (into bootloader), 'stm32', 'dtr_pulse', 'rts_pulse'",
+                            "enum": ["esp32", "esp32_bootloader", "stm32", "dtr_pulse", "rts_pulse"],
+                            "default": "dtr_pulse",
+                        },
+                    },
+                    "required": ["connection_id"],
+                },
+            ),
+            Tool(
+                name="serial_flush",
+                description="Flush serial buffers (clear pending input/output data).",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "connection_id": {
+                            "type": "string",
+                            "description": "Connection ID from serial_connect",
+                        },
+                        "input": {
+                            "type": "boolean",
+                            "description": "Flush input buffer (default: true)",
+                            "default": True,
+                        },
+                        "output": {
+                            "type": "boolean",
+                            "description": "Flush output buffer (default: true)",
+                            "default": True,
+                        },
+                    },
+                    "required": ["connection_id"],
+                },
+            ),
+            Tool(
+                name="serial_wait_for",
+                description="Wait for a specific string/pattern in serial output. Useful for boot messages, prompts.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "connection_id": {
+                            "type": "string",
+                            "description": "Connection ID from serial_connect",
+                        },
+                        "pattern": {
+                            "type": "string",
+                            "description": "String to wait for in output",
+                        },
+                        "timeout": {
+                            "type": "number",
+                            "description": "Maximum time to wait in seconds (default: 30)",
+                            "default": 30.0,
+                        },
+                    },
+                    "required": ["connection_id", "pattern"],
+                },
+            ),
+            Tool(
+                name="serial_send_break",
+                description="Send a serial break signal. Used to interrupt U-Boot, enter debug modes.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "connection_id": {
+                            "type": "string",
+                            "description": "Connection ID from serial_connect",
+                        },
+                        "duration": {
+                            "type": "number",
+                            "description": "Break duration in seconds (default: 0.25)",
+                            "default": 0.25,
+                        },
+                    },
+                    "required": ["connection_id"],
+                },
+            ),
         ]
 
     @server.call_tool()
@@ -290,6 +412,19 @@ def create_server() -> Server:
                 return await handle_serial_disconnect(arguments)
             elif name == "serial_list_connections":
                 return await handle_serial_list_connections()
+            # New hardware control tools
+            elif name == "serial_set_dtr":
+                return await handle_serial_set_dtr(arguments)
+            elif name == "serial_set_rts":
+                return await handle_serial_set_rts(arguments)
+            elif name == "serial_reset_device":
+                return await handle_serial_reset_device(arguments)
+            elif name == "serial_flush":
+                return await handle_serial_flush(arguments)
+            elif name == "serial_wait_for":
+                return await handle_serial_wait_for(arguments)
+            elif name == "serial_send_break":
+                return await handle_serial_send_break(arguments)
             else:
                 return [TextContent(type="text", text=f"Unknown tool: {name}")]
         except Exception as e:
@@ -490,6 +625,9 @@ async def handle_serial_connect(args: dict[str, Any]) -> list[TextContent]:
 
     def connect():
         ser = serial.Serial(port, baudrate=baudrate, timeout=timeout)
+        # Clear any pending data
+        ser.reset_input_buffer()
+        ser.reset_output_buffer()
         return ser
 
     ser = await loop.run_in_executor(None, connect)
@@ -516,19 +654,23 @@ async def handle_serial_send(args: dict[str, Any]) -> list[TextContent]:
 
     ser = serial_connections[conn_id]
 
+    if not ser.is_open:
+        return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
+
     if not raw:
         data = data + "\n"
 
     loop = asyncio.get_event_loop()
 
     def send_and_read():
+        # Clear input buffer before sending to get fresh response
+        ser.reset_input_buffer()
+
         ser.write(data.encode("utf-8"))
         ser.flush()
 
         if read_response:
-            # Wait a bit for response
-            import time
-
+            # Wait a bit for device to process and respond
             time.sleep(0.1)
 
             # Set temporary timeout
@@ -536,11 +678,28 @@ async def handle_serial_send(args: dict[str, Any]) -> list[TextContent]:
             ser.timeout = read_timeout
 
             response = b""
-            while True:
-                chunk = ser.read(1024)
-                if not chunk:
-                    break
-                response += chunk
+            deadline = time.time() + read_timeout
+
+            # Read with timeout - don't loop forever
+            while time.time() < deadline:
+                # Check how much data is waiting
+                waiting = ser.in_waiting
+                if waiting > 0:
+                    chunk = ser.read(waiting)
+                    if chunk:
+                        response += chunk
+                    # Small delay to allow more data to arrive
+                    time.sleep(0.05)
+                else:
+                    # No data waiting, check if we have anything
+                    if response:
+                        # Wait a bit more to see if more comes
+                        time.sleep(0.1)
+                        if ser.in_waiting == 0:
+                            break  # No more data coming
+                    else:
+                        # Still waiting for first data
+                        time.sleep(0.05)
 
             ser.timeout = old_timeout
             return response.decode("utf-8", errors="replace")
@@ -566,16 +725,38 @@ async def handle_serial_read(args: dict[str, Any]) -> list[TextContent]:
 
     ser = serial_connections[conn_id]
 
+    if not ser.is_open:
+        return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
+
     loop = asyncio.get_event_loop()
 
     def read():
         old_timeout = ser.timeout
         ser.timeout = timeout
 
-        data = ser.read(max_bytes)
+        response = b""
+        deadline = time.time() + timeout
+
+        # Read with timeout - don't block forever
+        while time.time() < deadline and len(response) < max_bytes:
+            waiting = ser.in_waiting
+            if waiting > 0:
+                to_read = min(waiting, max_bytes - len(response))
+                chunk = ser.read(to_read)
+                if chunk:
+                    response += chunk
+                time.sleep(0.01)
+            else:
+                if response:
+                    # Have some data, wait a bit more
+                    time.sleep(0.05)
+                    if ser.in_waiting == 0:
+                        break
+                else:
+                    time.sleep(0.05)
 
         ser.timeout = old_timeout
-        return data.decode("utf-8", errors="replace")
+        return response.decode("utf-8", errors="replace")
 
     data = await loop.run_in_executor(None, read)
 
@@ -593,7 +774,8 @@ async def handle_serial_disconnect(args: dict[str, Any]) -> list[TextContent]:
         return [TextContent(type="text", text=f"Not connected: {conn_id}")]
 
     ser = serial_connections.pop(conn_id)
-    ser.close()
+    if ser.is_open:
+        ser.close()
 
     return [TextContent(type="text", text=f"Disconnected: {conn_id}")]
 
@@ -610,10 +792,224 @@ async def handle_serial_list_connections() -> list[TextContent]:
     return [TextContent(type="text", text="\n".join(lines))]
 
 
+# NEW: Hardware control handlers for embedded development
+
+
+async def handle_serial_set_dtr(args: dict[str, Any]) -> list[TextContent]:
+    """Set DTR line state."""
+    conn_id = args["connection_id"]
+    state = args["state"]
+
+    if conn_id not in serial_connections:
+        return [TextContent(type="text", text=f"Not connected: {conn_id}")]
+
+    ser = serial_connections[conn_id]
+
+    if not ser.is_open:
+        return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, lambda: setattr(ser, 'dtr', state))
+
+    return [TextContent(type="text", text=f"DTR set to {'HIGH' if state else 'LOW'}")]
+
+
+async def handle_serial_set_rts(args: dict[str, Any]) -> list[TextContent]:
+    """Set RTS line state."""
+    conn_id = args["connection_id"]
+    state = args["state"]
+
+    if conn_id not in serial_connections:
+        return [TextContent(type="text", text=f"Not connected: {conn_id}")]
+
+    ser = serial_connections[conn_id]
+
+    if not ser.is_open:
+        return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, lambda: setattr(ser, 'rts', state))
+
+    return [TextContent(type="text", text=f"RTS set to {'HIGH' if state else 'LOW'}")]
+
+
+async def handle_serial_reset_device(args: dict[str, Any]) -> list[TextContent]:
+    """Reset device using DTR/RTS sequence."""
+    conn_id = args["connection_id"]
+    method = args.get("method", "dtr_pulse")
+
+    if conn_id not in serial_connections:
+        return [TextContent(type="text", text=f"Not connected: {conn_id}")]
+
+    ser = serial_connections[conn_id]
+
+    if not ser.is_open:
+        return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
+
+    loop = asyncio.get_event_loop()
+
+    def reset_esp32():
+        """Reset ESP32 into application mode."""
+        ser.dtr = False
+        ser.rts = True
+        time.sleep(0.1)
+        ser.dtr = True
+        ser.rts = False
+        time.sleep(0.05)
+        ser.dtr = False
+        time.sleep(0.5)
+        ser.reset_input_buffer()
+
+    def reset_esp32_bootloader():
+        """Reset ESP32 into bootloader/download mode."""
+        ser.dtr = False
+        ser.rts = False
+        time.sleep(0.1)
+        ser.dtr = True  # Hold GPIO0 low
+        ser.rts = True  # Assert reset
+        time.sleep(0.1)
+        ser.rts = False  # Release reset (GPIO0 still low)
+        time.sleep(0.4)
+        ser.dtr = False  # Release GPIO0
+        time.sleep(0.1)
+
+    def reset_stm32():
+        """Reset STM32 using DTR."""
+        ser.dtr = True
+        time.sleep(0.1)
+        ser.dtr = False
+        time.sleep(0.5)
+        ser.reset_input_buffer()
+
+    def reset_dtr_pulse():
+        """Generic DTR pulse reset."""
+        ser.dtr = True
+        time.sleep(0.1)
+        ser.dtr = False
+        time.sleep(0.3)
+        ser.reset_input_buffer()
+
+    def reset_rts_pulse():
+        """Generic RTS pulse reset."""
+        ser.rts = True
+        time.sleep(0.1)
+        ser.rts = False
+        time.sleep(0.3)
+        ser.reset_input_buffer()
+
+    reset_funcs = {
+        "esp32": reset_esp32,
+        "esp32_bootloader": reset_esp32_bootloader,
+        "stm32": reset_stm32,
+        "dtr_pulse": reset_dtr_pulse,
+        "rts_pulse": reset_rts_pulse,
+    }
+
+    if method not in reset_funcs:
+        return [TextContent(type="text", text=f"Unknown reset method: {method}")]
+
+    await loop.run_in_executor(None, reset_funcs[method])
+
+    return [TextContent(type="text", text=f"Device reset using method: {method}")]
+
+
+async def handle_serial_flush(args: dict[str, Any]) -> list[TextContent]:
+    """Flush serial buffers."""
+    conn_id = args["connection_id"]
+    flush_input = args.get("input", True)
+    flush_output = args.get("output", True)
+
+    if conn_id not in serial_connections:
+        return [TextContent(type="text", text=f"Not connected: {conn_id}")]
+
+    ser = serial_connections[conn_id]
+
+    if not ser.is_open:
+        return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
+
+    loop = asyncio.get_event_loop()
+
+    def flush():
+        if flush_input:
+            ser.reset_input_buffer()
+        if flush_output:
+            ser.reset_output_buffer()
+
+    await loop.run_in_executor(None, flush)
+
+    flushed = []
+    if flush_input:
+        flushed.append("input")
+    if flush_output:
+        flushed.append("output")
+
+    return [TextContent(type="text", text=f"Flushed {' and '.join(flushed)} buffer(s)")]
+
+
+async def handle_serial_wait_for(args: dict[str, Any]) -> list[TextContent]:
+    """Wait for a specific pattern in serial output."""
+    conn_id = args["connection_id"]
+    pattern = args["pattern"]
+    timeout = args.get("timeout", 30.0)
+
+    if conn_id not in serial_connections:
+        return [TextContent(type="text", text=f"Not connected: {conn_id}")]
+
+    ser = serial_connections[conn_id]
+
+    if not ser.is_open:
+        return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
+
+    loop = asyncio.get_event_loop()
+
+    def wait_for_pattern():
+        buffer = ""
+        deadline = time.time() + timeout
+        old_timeout = ser.timeout
+        ser.timeout = 0.1
+
+        while time.time() < deadline:
+            if ser.in_waiting > 0:
+                chunk = ser.read(ser.in_waiting)
+                if chunk:
+                    buffer += chunk.decode("utf-8", errors="replace")
+                    if pattern in buffer:
+                        ser.timeout = old_timeout
+                        return True, buffer
+            time.sleep(0.05)
+
+        ser.timeout = old_timeout
+        return False, buffer
+
+    found, buffer = await loop.run_in_executor(None, wait_for_pattern)
+
+    if found:
+        return [TextContent(type="text", text=f"Pattern '{pattern}' found!\n\n--- Output ---\n{buffer}")]
+    else:
+        return [TextContent(type="text", text=f"Timeout waiting for '{pattern}'\n\n--- Output received ---\n{buffer}")]
+
+
+async def handle_serial_send_break(args: dict[str, Any]) -> list[TextContent]:
+    """Send a serial break signal."""
+    conn_id = args["connection_id"]
+    duration = args.get("duration", 0.25)
+
+    if conn_id not in serial_connections:
+        return [TextContent(type="text", text=f"Not connected: {conn_id}")]
+
+    ser = serial_connections[conn_id]
+
+    if not ser.is_open:
+        return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, lambda: ser.send_break(duration))
+
+    return [TextContent(type="text", text=f"Break signal sent ({duration}s)")]
+
+
 def main():
     """Run the MCP server."""
-    import asyncio
-
     server = create_server()
 
     async def run():
