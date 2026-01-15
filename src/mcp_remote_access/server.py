@@ -181,6 +181,50 @@ def create_server() -> Server:
                 },
             ),
             Tool(
+                name="serial_connect_match",
+                description="Connect to a serial port by matching VID/PID/serial/description. Returns a connection ID.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "vid": {
+                            "type": "integer",
+                            "description": "USB vendor ID (e.g., 0x0403 or 1027)",
+                        },
+                        "pid": {
+                            "type": "integer",
+                            "description": "USB product ID (e.g., 0x6001 or 24577)",
+                        },
+                        "serial_number": {
+                            "type": "string",
+                            "description": "USB serial number (exact match)",
+                        },
+                        "description_contains": {
+                            "type": "string",
+                            "description": "Substring match in port description",
+                        },
+                        "hwid_contains": {
+                            "type": "string",
+                            "description": "Substring match in HWID",
+                        },
+                        "port_contains": {
+                            "type": "string",
+                            "description": "Substring match in device path (e.g., ttyUSB)",
+                        },
+                        "baudrate": {
+                            "type": "integer",
+                            "description": "Baud rate (default: 115200)",
+                            "default": 115200,
+                        },
+                        "timeout": {
+                            "type": "number",
+                            "description": "Read timeout in seconds (default: 1.0)",
+                            "default": 1.0,
+                        },
+                    },
+                    "required": [],
+                },
+            ),
+            Tool(
                 name="serial_send",
                 description="Send data to a serial port. Optionally wait for and return response.",
                 inputSchema={
@@ -198,6 +242,11 @@ def create_server() -> Server:
                             "type": "boolean",
                             "description": "Send raw data without adding newline (default: false)",
                             "default": False,
+                        },
+                        "line_ending": {
+                            "type": "string",
+                            "description": "Line ending to append when raw=false: 'lf', 'cr', 'crlf', or 'none' (default: 'lf')",
+                            "default": "lf",
                         },
                         "read_response": {
                             "type": "boolean",
@@ -364,6 +413,67 @@ def create_server() -> Server:
                 },
             ),
             Tool(
+                name="serial_expect",
+                description="Wait for patterns and optionally send responses. Useful for login prompts and AT flows.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "connection_id": {
+                            "type": "string",
+                            "description": "Connection ID from serial_connect",
+                        },
+                        "steps": {
+                            "type": "array",
+                            "description": "Sequence of steps (each with wait_for and/or send)",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "wait_for": {
+                                        "type": "string",
+                                        "description": "Pattern to wait for before sending",
+                                    },
+                                    "send": {
+                                        "type": "string",
+                                        "description": "Data to send after wait_for (if provided)",
+                                    },
+                                    "raw": {
+                                        "type": "boolean",
+                                        "description": "Send raw data without line ending (default: false)",
+                                        "default": False,
+                                    },
+                                    "line_ending": {
+                                        "type": "string",
+                                        "description": "Line ending when raw=false: 'lf', 'cr', 'crlf', or 'none' (default: 'lf')",
+                                        "default": "lf",
+                                    },
+                                    "timeout": {
+                                        "type": "number",
+                                        "description": "Timeout for wait_for in seconds (default: 30)",
+                                        "default": 30.0,
+                                    },
+                                },
+                            },
+                        },
+                        "flush_input": {
+                            "type": "boolean",
+                            "description": "Flush input buffer before starting (default: false)",
+                            "default": False,
+                        },
+                        "default_timeout": {
+                            "type": "number",
+                            "description": "Default timeout for steps without timeout (default: 30)",
+                            "default": 30.0,
+                        },
+                        "default_line_ending": {
+                            "type": "string",
+                            "description": "Default line ending for sends when raw=false (default: 'lf')",
+                            "default": "lf",
+                        },
+                    },
+                    "required": ["connection_id", "steps"],
+                },
+            ),
+            Tool(
                 name="serial_send_break",
                 description="Send a serial break signal. Used to interrupt U-Boot, enter debug modes.",
                 inputSchema={
@@ -404,6 +514,8 @@ def create_server() -> Server:
                 return await handle_serial_list_ports()
             elif name == "serial_connect":
                 return await handle_serial_connect(arguments)
+            elif name == "serial_connect_match":
+                return await handle_serial_connect_match(arguments)
             elif name == "serial_send":
                 return await handle_serial_send(arguments)
             elif name == "serial_read":
@@ -423,6 +535,8 @@ def create_server() -> Server:
                 return await handle_serial_flush(arguments)
             elif name == "serial_wait_for":
                 return await handle_serial_wait_for(arguments)
+            elif name == "serial_expect":
+                return await handle_serial_expect(arguments)
             elif name == "serial_send_break":
                 return await handle_serial_send_break(arguments)
             else:
@@ -594,6 +708,75 @@ async def handle_ssh_list_connections() -> list[TextContent]:
 # Serial Handlers
 
 
+LINE_ENDINGS = {
+    "lf": "\n",
+    "cr": "\r",
+    "crlf": "\r\n",
+    "none": "",
+}
+
+
+def normalize_line_ending(line_ending: str | None) -> str:
+    """Normalize line ending names to actual characters."""
+    if line_ending is None:
+        return LINE_ENDINGS["lf"]
+    if line_ending in ("\n", "\r", "\r\n", ""):
+        return line_ending
+    key = line_ending.lower()
+    if key in LINE_ENDINGS:
+        return LINE_ENDINGS[key]
+    raise ValueError("line_ending must be one of: lf, cr, crlf, none")
+
+
+def prepare_serial_payload(data: str, raw: bool, line_ending: str | None) -> str:
+    """Prepare serial payload with optional line ending."""
+    if raw:
+        return data
+    return data + normalize_line_ending(line_ending)
+
+
+def describe_serial_port(port) -> list[str]:
+    """Format port details for display."""
+    lines = [f"  - {port.device}: {port.description}"]
+    if port.hwid:
+        lines.append(f"    HWID: {port.hwid}")
+    if port.vid is not None and port.pid is not None:
+        lines.append(f"    VID:PID: {port.vid:04x}:{port.pid:04x}")
+    if port.serial_number:
+        lines.append(f"    SERIAL: {port.serial_number}")
+    return lines
+
+
+def wait_for_serial_pattern(ser: serial.Serial, pattern: str, timeout: float) -> tuple[bool, str]:
+    """Wait for a pattern in serial output."""
+    buffer = ""
+    deadline = time.time() + timeout
+    old_timeout = ser.timeout
+    ser.timeout = 0.1
+
+    try:
+        while time.time() < deadline:
+            if ser.in_waiting > 0:
+                chunk = ser.read(ser.in_waiting)
+                if chunk:
+                    buffer += chunk.decode("utf-8", errors="replace")
+                    if pattern in buffer:
+                        return True, buffer
+            time.sleep(0.05)
+    finally:
+        ser.timeout = old_timeout
+
+    return False, buffer
+
+
+def open_serial_connection(port: str, baudrate: int, timeout: float) -> serial.Serial:
+    """Open a serial port and clear buffers."""
+    ser = serial.Serial(port, baudrate=baudrate, timeout=timeout)
+    ser.reset_input_buffer()
+    ser.reset_output_buffer()
+    return ser
+
+
 async def handle_serial_list_ports() -> list[TextContent]:
     """List available serial ports."""
     ports = serial.tools.list_ports.comports()
@@ -603,9 +786,7 @@ async def handle_serial_list_ports() -> list[TextContent]:
 
     lines = ["Available serial ports:"]
     for port in ports:
-        lines.append(f"  - {port.device}: {port.description}")
-        if port.hwid:
-            lines.append(f"    HWID: {port.hwid}")
+        lines.extend(describe_serial_port(port))
 
     return [TextContent(type="text", text="\n".join(lines))]
 
@@ -624,11 +805,7 @@ async def handle_serial_connect(args: dict[str, Any]) -> list[TextContent]:
     loop = asyncio.get_event_loop()
 
     def connect():
-        ser = serial.Serial(port, baudrate=baudrate, timeout=timeout)
-        # Clear any pending data
-        ser.reset_input_buffer()
-        ser.reset_output_buffer()
-        return ser
+        return open_serial_connection(port, baudrate, timeout)
 
     ser = await loop.run_in_executor(None, connect)
     serial_connections[conn_id] = ser
@@ -641,11 +818,106 @@ async def handle_serial_connect(args: dict[str, Any]) -> list[TextContent]:
     ]
 
 
+async def handle_serial_connect_match(args: dict[str, Any]) -> list[TextContent]:
+    """Connect to a serial port by matching port attributes."""
+    baudrate = args.get("baudrate", 115200)
+    timeout = args.get("timeout", 1.0)
+    serial_number = args.get("serial_number")
+    description_contains = args.get("description_contains")
+    hwid_contains = args.get("hwid_contains")
+    port_contains = args.get("port_contains")
+
+    def parse_int(value: Any, name: str) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            try:
+                return int(value, 0)
+            except ValueError as exc:
+                raise ValueError(f"{name} must be an int or hex string") from exc
+        raise ValueError(f"{name} must be an int or hex string")
+
+    vid = parse_int(args.get("vid"), "vid")
+    pid = parse_int(args.get("pid"), "pid")
+
+    if not any([vid, pid, serial_number, description_contains, hwid_contains, port_contains]):
+        return [
+            TextContent(
+                type="text",
+                text="Provide at least one match field: vid, pid, serial_number, description_contains, hwid_contains, or port_contains.",
+            )
+        ]
+
+    ports = serial.tools.list_ports.comports()
+    if not ports:
+        return [TextContent(type="text", text="No serial ports found.")]
+
+    matches = []
+    for port in ports:
+        if vid is not None and port.vid != vid:
+            continue
+        if pid is not None and port.pid != pid:
+            continue
+        if serial_number and (port.serial_number or "") != serial_number:
+            continue
+        if description_contains and description_contains.lower() not in (port.description or "").lower():
+            continue
+        if hwid_contains and hwid_contains.lower() not in (port.hwid or "").lower():
+            continue
+        if port_contains and port_contains.lower() not in (port.device or "").lower():
+            continue
+        matches.append(port)
+
+    if not matches:
+        lines = ["No matching serial ports found.", "Available serial ports:"]
+        for port in ports:
+            lines.extend(describe_serial_port(port))
+        return [TextContent(type="text", text="\n".join(lines))]
+
+    if len(matches) > 1:
+        lines = ["Multiple matching serial ports found. Refine your match criteria:"]
+        for port in matches:
+            lines.extend(describe_serial_port(port))
+        return [TextContent(type="text", text="\n".join(lines))]
+
+    selected = matches[0]
+    port_name = selected.device
+    conn_id = f"{port_name}@{baudrate}"
+
+    if conn_id in serial_connections:
+        return [TextContent(type="text", text=f"Already connected: {conn_id}")]
+
+    loop = asyncio.get_event_loop()
+
+    def connect():
+        return open_serial_connection(port_name, baudrate, timeout)
+
+    ser = await loop.run_in_executor(None, connect)
+    serial_connections[conn_id] = ser
+
+    details = "\n".join(describe_serial_port(selected))
+    return [
+        TextContent(
+            type="text",
+            text=(
+                "Connected successfully!\n"
+                f"Connection ID: {conn_id}\n"
+                f"Port: {port_name}\n"
+                f"Baudrate: {baudrate}\n"
+                f"{details}"
+            ),
+        )
+    ]
+
+
 async def handle_serial_send(args: dict[str, Any]) -> list[TextContent]:
     """Send data to a serial port."""
     conn_id = args["connection_id"]
     data = args["data"]
     raw = args.get("raw", False)
+    line_ending = args.get("line_ending", "lf")
     read_response = args.get("read_response", True)
     read_timeout = args.get("read_timeout", 2.0)
 
@@ -657,8 +929,7 @@ async def handle_serial_send(args: dict[str, Any]) -> list[TextContent]:
     if not ser.is_open:
         return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
 
-    if not raw:
-        data = data + "\n"
+    payload = prepare_serial_payload(data, raw, line_ending)
 
     loop = asyncio.get_event_loop()
 
@@ -666,7 +937,7 @@ async def handle_serial_send(args: dict[str, Any]) -> list[TextContent]:
         # Clear input buffer before sending to get fresh response
         ser.reset_input_buffer()
 
-        ser.write(data.encode("utf-8"))
+        ser.write(payload.encode("utf-8"))
         ser.flush()
 
         if read_response:
@@ -707,7 +978,7 @@ async def handle_serial_send(args: dict[str, Any]) -> list[TextContent]:
 
     response = await loop.run_in_executor(None, send_and_read)
 
-    result = f"Sent: {repr(data)}"
+    result = f"Sent: {repr(payload)}"
     if response is not None:
         result += f"\n\n--- Response ---\n{response}"
 
@@ -963,23 +1234,7 @@ async def handle_serial_wait_for(args: dict[str, Any]) -> list[TextContent]:
     loop = asyncio.get_event_loop()
 
     def wait_for_pattern():
-        buffer = ""
-        deadline = time.time() + timeout
-        old_timeout = ser.timeout
-        ser.timeout = 0.1
-
-        while time.time() < deadline:
-            if ser.in_waiting > 0:
-                chunk = ser.read(ser.in_waiting)
-                if chunk:
-                    buffer += chunk.decode("utf-8", errors="replace")
-                    if pattern in buffer:
-                        ser.timeout = old_timeout
-                        return True, buffer
-            time.sleep(0.05)
-
-        ser.timeout = old_timeout
-        return False, buffer
+        return wait_for_serial_pattern(ser, pattern, timeout)
 
     found, buffer = await loop.run_in_executor(None, wait_for_pattern)
 
@@ -987,6 +1242,67 @@ async def handle_serial_wait_for(args: dict[str, Any]) -> list[TextContent]:
         return [TextContent(type="text", text=f"Pattern '{pattern}' found!\n\n--- Output ---\n{buffer}")]
     else:
         return [TextContent(type="text", text=f"Timeout waiting for '{pattern}'\n\n--- Output received ---\n{buffer}")]
+
+
+async def handle_serial_expect(args: dict[str, Any]) -> list[TextContent]:
+    """Run a sequence of expect/send steps on a serial connection."""
+    conn_id = args["connection_id"]
+    steps = args["steps"]
+    flush_input = args.get("flush_input", False)
+    default_timeout = args.get("default_timeout", 30.0)
+    default_line_ending = args.get("default_line_ending", "lf")
+
+    if conn_id not in serial_connections:
+        return [TextContent(type="text", text=f"Not connected: {conn_id}")]
+
+    ser = serial_connections[conn_id]
+
+    if not ser.is_open:
+        return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
+
+    if not steps:
+        return [TextContent(type="text", text="No steps provided.")]
+
+    loop = asyncio.get_event_loop()
+
+    def expect_sequence():
+        if flush_input:
+            ser.reset_input_buffer()
+
+        output_chunks: list[str] = []
+        for idx, step in enumerate(steps, start=1):
+            if not isinstance(step, dict):
+                return False, f"Step {idx} must be an object.", "".join(output_chunks)
+
+            pattern = step.get("wait_for")
+            send_data = step.get("send")
+
+            if not pattern and send_data is None:
+                return False, f"Step {idx} must include wait_for or send.", "".join(output_chunks)
+
+            if pattern:
+                timeout = step.get("timeout", default_timeout)
+                found, buffer = wait_for_serial_pattern(ser, pattern, timeout)
+                output_chunks.append(buffer)
+                if not found:
+                    return False, f"Timeout waiting for '{pattern}' at step {idx}.", "".join(output_chunks)
+
+            if send_data is not None:
+                raw = step.get("raw", False)
+                line_ending = step.get("line_ending", default_line_ending)
+                payload = prepare_serial_payload(send_data, raw, line_ending)
+                ser.write(payload.encode("utf-8"))
+                ser.flush()
+                time.sleep(0.05)
+
+        return True, f"Serial expect completed ({len(steps)} steps).", "".join(output_chunks)
+
+    ok, message, output = await loop.run_in_executor(None, expect_sequence)
+
+    if output:
+        message += f"\n\n--- Output ---\n{output}"
+
+    return [TextContent(type="text", text=message)]
 
 
 async def handle_serial_send_break(args: dict[str, Any]) -> list[TextContent]:

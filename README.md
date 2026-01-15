@@ -29,8 +29,16 @@ An MCP server providing SSH and UART/serial port access for MCP-compatible clien
 ### UART/Serial Tools
 - **serial_list_ports** - List available serial ports
 - **serial_connect** - Connect to a serial port
-- **serial_send** - Send data (with optional response reading)
+- **serial_connect_match** - Connect by matching VID/PID/serial/description
+- **serial_send** - Send data (with optional response reading and configurable line ending)
 - **serial_read** - Read data from port
+- **serial_wait_for** - Wait for a specific pattern in output
+- **serial_expect** - Wait/send sequences for prompts and AT flows
+- **serial_send_break** - Send a break signal
+- **serial_set_dtr** - Set DTR line state
+- **serial_set_rts** - Set RTS line state
+- **serial_reset_device** - Reset devices via DTR/RTS sequences
+- **serial_flush** - Flush serial buffers
 - **serial_disconnect** - Close connections
 - **serial_list_connections** - Show active connections
 
@@ -102,6 +110,24 @@ The client will use:
 1. `serial_list_ports` to show available ports
 2. `serial_connect` to establish connection
 3. `serial_send` / `serial_read` for communication
+
+```
+Connect to the USB serial device with VID 0x10c4 and PID 0xea60 at 115200 baud
+```
+
+The client will use:
+1. `serial_connect_match` to select the port
+2. `serial_send` / `serial_read` for communication
+
+### Serial Prompt Automation
+
+```
+Connect to the UART and log in as root (password summit), then wait for a shell prompt
+```
+
+The client will use:
+1. `serial_connect` or `serial_connect_match` to open the port
+2. `serial_expect` to wait for prompts and send responses
 
 ## Security Notes
 
