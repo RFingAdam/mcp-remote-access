@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>SSH & Serial port access for Claude Code via MCP</strong>
+  <strong>SSH & Serial port access for MCP-compatible clients</strong>
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
 
 ---
 
-An MCP server providing SSH and UART/serial port access for Claude Code. Enables direct control of remote devices like Raspberry Pi, embedded systems, and IoT devices.
+An MCP server providing SSH and UART/serial port access for MCP-compatible clients (for example, Codex CLI or Claude Code). Enables direct control of remote devices like Raspberry Pi, embedded systems, and IoT devices.
 
 ## Features
 
@@ -44,26 +44,36 @@ cd mcp-remote-access
 uv pip install -e .
 ```
 
-### 2. Add to Claude Code
+### 2. Add to your MCP client
+
+Codex CLI example:
+
+```bash
+codex mcp add remote-access -- uv run --directory /path/to/mcp-remote-access mcp-remote-access
+```
+
+Claude Code example:
 
 ```bash
 claude mcp add remote-access -- uv run --directory /path/to/mcp-remote-access mcp-remote-access
 ```
 
-Or manually add to `~/.claude.json`:
+If your client uses a config file, set the MCP server command to:
 
 ```json
 {
-  "mcpServers": {
-    "remote-access": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/mcp-remote-access", "mcp-remote-access"]
-    }
-  }
+  "command": "uv",
+  "args": ["run", "--directory", "/path/to/mcp-remote-access", "mcp-remote-access"]
 }
 ```
 
-### 3. Restart Claude Code
+### 3. Start your client
+
+For example:
+
+```bash
+codex
+```
 
 ```bash
 claude
@@ -74,10 +84,10 @@ claude
 ### SSH to a Raspberry Pi
 
 ```
-Claude, connect to my Pi at vpn-ap.local with username pi and password raspberry
+Connect to my Pi at vpn-ap.local with username pi and password raspberry
 ```
 
-Claude will use:
+The client will use:
 1. `ssh_connect` to establish connection
 2. `ssh_execute` to run commands
 3. `ssh_upload/download` for file transfers
@@ -85,10 +95,10 @@ Claude will use:
 ### Serial Connection to Embedded Device
 
 ```
-Claude, list available serial ports and connect to /dev/ttyUSB0 at 115200 baud
+List available serial ports and connect to /dev/ttyUSB0 at 115200 baud
 ```
 
-Claude will use:
+The client will use:
 1. `serial_list_ports` to show available ports
 2. `serial_connect` to establish connection
 3. `serial_send` / `serial_read` for communication
@@ -98,7 +108,7 @@ Claude will use:
 - SSH passwords are passed in memory only, never stored
 - Connections are session-based and cleared on server restart
 - Use SSH keys when possible for better security
-- The server only accepts connections from Claude Code (localhost)
+- The server only accepts connections from the local MCP client (stdio transport)
 
 ## Troubleshooting
 
