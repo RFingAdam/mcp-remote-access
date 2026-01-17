@@ -492,6 +492,44 @@ def create_server() -> Server:
                     "required": ["connection_id"],
                 },
             ),
+            Tool(
+                name="serial_esp32_connect",
+                description="Connect to ESP32 with automatic reset and boot wait. Handles the ESP32 boot sequence (74880 baud boot messages, then app at 115200). Resets the device and waits for it to be ready.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "port": {
+                            "type": "string",
+                            "description": "Serial port (e.g., '/dev/ttyUSB0' or 'COM3')",
+                        },
+                        "baudrate": {
+                            "type": "integer",
+                            "description": "Baud rate for application (default: 115200)",
+                            "default": 115200,
+                        },
+                        "reset": {
+                            "type": "boolean",
+                            "description": "Reset ESP32 after connecting (default: true)",
+                            "default": True,
+                        },
+                        "wait_for_boot": {
+                            "type": "boolean",
+                            "description": "Wait for boot to complete (default: true)",
+                            "default": True,
+                        },
+                        "boot_timeout": {
+                            "type": "number",
+                            "description": "Timeout waiting for boot in seconds (default: 5)",
+                            "default": 5.0,
+                        },
+                        "ready_pattern": {
+                            "type": "string",
+                            "description": "Optional pattern to wait for after boot (e.g., 'ready' or prompt)",
+                        },
+                    },
+                    "required": ["port"],
+                },
+            ),
         ]
 
     @server.call_tool()
@@ -539,6 +577,8 @@ def create_server() -> Server:
                 return await handle_serial_expect(arguments)
             elif name == "serial_send_break":
                 return await handle_serial_send_break(arguments)
+            elif name == "serial_esp32_connect":
+                return await handle_serial_esp32_connect(arguments)
             else:
                 return [TextContent(type="text", text=f"Unknown tool: {name}")]
         except Exception as e:
@@ -1322,6 +1362,135 @@ async def handle_serial_send_break(args: dict[str, Any]) -> list[TextContent]:
     await loop.run_in_executor(None, lambda: ser.send_break(duration))
 
     return [TextContent(type="text", text=f"Break signal sent ({duration}s)")]
+
+
+async def handle_serial_esp32_connect(args: dict[str, Any]) -> list[TextContent]:
+    """Connect to ESP32 with automatic reset and boot wait handling."""
+    port = args["port"]
+    baudrate = args.get("baudrate", 115200)
+    do_reset = args.get("reset", True)
+    wait_for_boot = args.get("wait_for_boot", True)
+    boot_timeout = args.get("boot_timeout", 5.0)
+    ready_pattern = args.get("ready_pattern")
+
+    conn_id = f"{port}@{baudrate}"
+
+    # Close existing connection if present
+    if conn_id in serial_connections:
+        try:
+            serial_connections[conn_id].close()
+        except Exception:
+            pass
+        del serial_connections[conn_id]
+
+    loop = asyncio.get_event_loop()
+    status_messages = []
+
+    def connect_and_setup():
+        nonlocal status_messages
+
+        # Connect at target baud rate
+        ser = serial.Serial(
+            port=port,
+            baudrate=baudrate,
+            timeout=1.0,
+            write_timeout=1.0,
+        )
+        status_messages.append(f"Connected to {port} at {baudrate} baud")
+
+        if do_reset:
+            # ESP32 reset sequence: into application mode
+            # This uses the same sequence as esptool's hard_reset
+            ser.dtr = False
+            ser.rts = True
+            time.sleep(0.1)
+            ser.dtr = True
+            ser.rts = False
+            time.sleep(0.05)
+            ser.dtr = False
+            time.sleep(0.1)
+            ser.reset_input_buffer()
+            status_messages.append("ESP32 reset triggered")
+
+        if wait_for_boot:
+            # Wait for boot messages to settle
+            # ESP32 outputs boot messages at 74880 baud, which appear as garbage at 115200
+            # We wait for them to finish, then look for readable output
+            boot_start = time.time()
+            boot_complete = False
+            garbage_count = 0
+            readable_count = 0
+            buffer = ""
+
+            while (time.time() - boot_start) < boot_timeout:
+                if ser.in_waiting:
+                    try:
+                        data = ser.read(ser.in_waiting)
+                        text = data.decode('utf-8', errors='replace')
+                        buffer += text
+
+                        # Count readable vs garbage characters
+                        for c in text:
+                            if c.isprintable() or c in '\r\n\t':
+                                readable_count += 1
+                            else:
+                                garbage_count += 1
+
+                        # Check for boot completion indicators
+                        if 'rst:' in buffer.lower() or 'boot:' in buffer.lower():
+                            # ESP32 boot message seen
+                            pass
+
+                        # If we see mostly readable output after garbage, boot is complete
+                        if garbage_count > 10 and readable_count > garbage_count:
+                            boot_complete = True
+                            break
+
+                        # If we haven't seen garbage but see readable output
+                        if garbage_count == 0 and readable_count > 50:
+                            boot_complete = True
+                            break
+
+                    except Exception:
+                        pass
+                else:
+                    time.sleep(0.1)
+
+            # Clear any remaining boot garbage
+            time.sleep(0.2)
+            ser.reset_input_buffer()
+
+            if boot_complete:
+                status_messages.append("Boot sequence complete")
+            else:
+                status_messages.append(f"Boot wait timeout ({boot_timeout}s) - continuing anyway")
+
+        # If ready_pattern specified, wait for it
+        if ready_pattern:
+            found, output = wait_for_serial_pattern(ser, ready_pattern, boot_timeout)
+            if found:
+                status_messages.append(f"Ready pattern '{ready_pattern}' found")
+            else:
+                status_messages.append(f"Ready pattern '{ready_pattern}' not found (timeout)")
+
+        return ser
+
+    try:
+        ser = await loop.run_in_executor(None, connect_and_setup)
+        serial_connections[conn_id] = ser
+
+        result = f"ESP32 connected successfully!\n"
+        result += f"Connection ID: {conn_id}\n"
+        result += f"Port: {port}\n"
+        result += f"Baudrate: {baudrate}\n"
+        result += "\nStatus:\n" + "\n".join(f"  - {msg}" for msg in status_messages)
+
+        return [TextContent(type="text", text=result)]
+
+    except serial.SerialException as e:
+        return [TextContent(type="text", text=f"Failed to connect to {port}: {str(e)}")]
+    except Exception as e:
+        return [TextContent(type="text", text=f"Error: {type(e).__name__}: {str(e)}")]
 
 
 def main():
