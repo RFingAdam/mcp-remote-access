@@ -16,6 +16,8 @@ from mcp.types import TextContent, Tool
 # Store active connections
 ssh_connections: dict[str, paramiko.SSHClient] = {}
 serial_connections: dict[str, serial.Serial] = {}
+# Store background task info: {task_id: {"connection_id": str, "output_file": str, "pid": int}}
+ssh_background_tasks: dict[str, dict[str, Any]] = {}
 
 
 def create_server() -> Server:
@@ -142,6 +144,51 @@ def create_server() -> Server:
             Tool(
                 name="ssh_list_connections",
                 description="List all active SSH connections.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                },
+            ),
+            Tool(
+                name="ssh_execute_background",
+                description="Execute a long-running command in the background. Returns a task ID and output file path. Use ssh_check_background to monitor progress.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "connection_id": {
+                            "type": "string",
+                            "description": "Connection ID from ssh_connect",
+                        },
+                        "command": {
+                            "type": "string",
+                            "description": "Command to execute in background",
+                        },
+                    },
+                    "required": ["connection_id", "command"],
+                },
+            ),
+            Tool(
+                name="ssh_check_background",
+                description="Check status and get output from a background command. Returns whether it's still running and the latest output.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "string",
+                            "description": "Task ID from ssh_execute_background",
+                        },
+                        "tail_lines": {
+                            "type": "integer",
+                            "description": "Number of lines to return from the end of output (default: 50)",
+                            "default": 50,
+                        },
+                    },
+                    "required": ["task_id"],
+                },
+            ),
+            Tool(
+                name="ssh_list_background",
+                description="List all background tasks and their status.",
                 inputSchema={
                     "type": "object",
                     "properties": {},
@@ -548,6 +595,12 @@ def create_server() -> Server:
                 return await handle_ssh_disconnect(arguments)
             elif name == "ssh_list_connections":
                 return await handle_ssh_list_connections()
+            elif name == "ssh_execute_background":
+                return await handle_ssh_execute_background(arguments)
+            elif name == "ssh_check_background":
+                return await handle_ssh_check_background(arguments)
+            elif name == "ssh_list_background":
+                return await handle_ssh_list_background()
             elif name == "serial_list_ports":
                 return await handle_serial_list_ports()
             elif name == "serial_connect":
@@ -741,6 +794,118 @@ async def handle_ssh_list_connections() -> list[TextContent]:
     lines = ["Active SSH connections:"]
     for conn_id in ssh_connections:
         lines.append(f"  - {conn_id}")
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def handle_ssh_execute_background(args: dict[str, Any]) -> list[TextContent]:
+    """Execute a command in the background."""
+    conn_id = args["connection_id"]
+    command = args["command"]
+
+    if conn_id not in ssh_connections:
+        return [TextContent(type="text", text=f"Not connected: {conn_id}\nUse ssh_connect first.")]
+
+    client = ssh_connections[conn_id]
+
+    # Generate unique task ID and output file
+    task_id = f"bg_{int(time.time())}_{len(ssh_background_tasks)}"
+    output_file = f"/tmp/mcp_bg_{task_id}.log"
+
+    # Run command in background with nohup, redirect output to file
+    bg_command = f"nohup bash -c '{command}' > {output_file} 2>&1 & echo $!"
+
+    loop = asyncio.get_event_loop()
+
+    def execute():
+        stdin, stdout, stderr = client.exec_command(bg_command, timeout=30)
+        pid = stdout.read().decode("utf-8", errors="replace").strip()
+        return pid
+
+    try:
+        pid = await loop.run_in_executor(None, execute)
+
+        ssh_background_tasks[task_id] = {
+            "connection_id": conn_id,
+            "output_file": output_file,
+            "pid": pid,
+            "command": command[:100] + "..." if len(command) > 100 else command,
+            "started": time.time(),
+        }
+
+        return [
+            TextContent(
+                type="text",
+                text=f"Background task started!\nTask ID: {task_id}\nPID: {pid}\nOutput file: {output_file}\n\nUse ssh_check_background with task_id='{task_id}' to monitor progress.",
+            )
+        ]
+    except Exception as e:
+        return [TextContent(type="text", text=f"Failed to start background task: {str(e)}")]
+
+
+async def handle_ssh_check_background(args: dict[str, Any]) -> list[TextContent]:
+    """Check status of a background task."""
+    task_id = args["task_id"]
+    tail_lines = args.get("tail_lines", 50)
+
+    if task_id not in ssh_background_tasks:
+        return [TextContent(type="text", text=f"Unknown task: {task_id}\nUse ssh_list_background to see active tasks.")]
+
+    task = ssh_background_tasks[task_id]
+    conn_id = task["connection_id"]
+
+    if conn_id not in ssh_connections:
+        return [TextContent(type="text", text=f"Connection lost: {conn_id}")]
+
+    client = ssh_connections[conn_id]
+
+    loop = asyncio.get_event_loop()
+
+    def check_status():
+        # Check if process is still running
+        stdin, stdout, stderr = client.exec_command(f"ps -p {task['pid']} -o pid= 2>/dev/null", timeout=10)
+        is_running = bool(stdout.read().decode("utf-8", errors="replace").strip())
+
+        # Get tail of output file
+        stdin, stdout, stderr = client.exec_command(f"tail -n {tail_lines} {task['output_file']} 2>/dev/null", timeout=30)
+        output = stdout.read().decode("utf-8", errors="replace")
+
+        # Get file size
+        stdin, stdout, stderr = client.exec_command(f"wc -l {task['output_file']} 2>/dev/null | cut -d' ' -f1", timeout=10)
+        total_lines = stdout.read().decode("utf-8", errors="replace").strip()
+
+        return is_running, output, total_lines
+
+    try:
+        is_running, output, total_lines = await loop.run_in_executor(None, check_status)
+
+        status = "RUNNING" if is_running else "COMPLETED"
+        elapsed = int(time.time() - task["started"])
+        elapsed_str = f"{elapsed // 60}m {elapsed % 60}s"
+
+        result = f"Task: {task_id}\n"
+        result += f"Status: {status}\n"
+        result += f"PID: {task['pid']}\n"
+        result += f"Elapsed: {elapsed_str}\n"
+        result += f"Total lines: {total_lines}\n"
+        result += f"Command: {task['command']}\n"
+        result += f"\n--- Last {tail_lines} lines ---\n{output}"
+
+        return [TextContent(type="text", text=result)]
+    except Exception as e:
+        return [TextContent(type="text", text=f"Failed to check task status: {str(e)}")]
+
+
+async def handle_ssh_list_background() -> list[TextContent]:
+    """List all background tasks."""
+    if not ssh_background_tasks:
+        return [TextContent(type="text", text="No background tasks.")]
+
+    lines = ["Background tasks:"]
+    for task_id, task in ssh_background_tasks.items():
+        elapsed = int(time.time() - task["started"])
+        elapsed_str = f"{elapsed // 60}m {elapsed % 60}s"
+        lines.append(f"  - {task_id}: PID {task['pid']} ({elapsed_str}) - {task['command']}")
 
     return [TextContent(type="text", text="\n".join(lines))]
 
