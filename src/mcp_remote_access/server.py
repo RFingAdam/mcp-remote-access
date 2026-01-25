@@ -2,6 +2,7 @@
 """MCP server providing SSH and UART remote access tools for IoT/embedded development."""
 
 import asyncio
+import concurrent.futures
 import os
 import time
 from typing import Any
@@ -18,6 +19,43 @@ ssh_connections: dict[str, paramiko.SSHClient] = {}
 serial_connections: dict[str, serial.Serial] = {}
 # Store background task info: {task_id: {"connection_id": str, "output_file": str, "pid": int}}
 ssh_background_tasks: dict[str, dict[str, Any]] = {}
+
+# Thread pool with limited workers to prevent resource exhaustion
+_executor = concurrent.futures.ThreadPoolExecutor(max_workers=10)
+
+
+async def run_with_timeout(func, timeout: float, *args, **kwargs):
+    """Run a blocking function in executor with proper timeout handling."""
+    loop = asyncio.get_event_loop()
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(_executor, lambda: func(*args, **kwargs)),
+            timeout=timeout
+        )
+    except asyncio.TimeoutError:
+        raise TimeoutError(f"Operation timed out after {timeout}s")
+    except asyncio.CancelledError:
+        raise
+
+
+def check_ssh_connection(client: paramiko.SSHClient) -> bool:
+    """Check if SSH connection is still alive."""
+    try:
+        transport = client.get_transport()
+        if transport is None or not transport.is_active():
+            return False
+        # Send keepalive to verify connection
+        transport.send_ignore()
+        return True
+    except Exception:
+        return False
+
+
+def configure_ssh_keepalive(client: paramiko.SSHClient):
+    """Configure SSH keepalive to prevent stale connections."""
+    transport = client.get_transport()
+    if transport:
+        transport.set_keepalive(30)  # Send keepalive every 30 seconds
 
 
 def create_server() -> Server:
@@ -654,9 +692,18 @@ async def handle_ssh_connect(args: dict[str, Any]) -> list[TextContent]:
     # Create connection ID
     conn_id = f"{username}@{host}:{port}"
 
-    # Check if already connected
+    # Check if already connected and connection is alive
     if conn_id in ssh_connections:
-        return [TextContent(type="text", text=f"Already connected: {conn_id}")]
+        existing = ssh_connections[conn_id]
+        if check_ssh_connection(existing):
+            return [TextContent(type="text", text=f"Already connected: {conn_id}")]
+        else:
+            # Connection is stale, close and reconnect
+            try:
+                existing.close()
+            except Exception:
+                pass
+            del ssh_connections[conn_id]
 
     # Create SSH client
     client = paramiko.SSHClient()
@@ -667,9 +714,11 @@ async def handle_ssh_connect(args: dict[str, Any]) -> list[TextContent]:
         "hostname": host,
         "port": port,
         "username": username,
-        "timeout": 10,
+        "timeout": 15,
         "allow_agent": True,
         "look_for_keys": True,
+        "banner_timeout": 30,
+        "auth_timeout": 30,
     }
 
     if password:
@@ -677,9 +726,13 @@ async def handle_ssh_connect(args: dict[str, Any]) -> list[TextContent]:
     if key_path:
         connect_kwargs["key_filename"] = os.path.expanduser(key_path)
 
-    # Run in thread pool to avoid blocking
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, lambda: client.connect(**connect_kwargs))
+    # Run in thread pool with timeout
+    def do_connect():
+        client.connect(**connect_kwargs)
+        configure_ssh_keepalive(client)
+        return client
+
+    await run_with_timeout(do_connect, timeout=45.0)
 
     ssh_connections[conn_id] = client
 
@@ -702,15 +755,62 @@ async def handle_ssh_execute(args: dict[str, Any]) -> list[TextContent]:
 
     client = ssh_connections[conn_id]
 
-    # Execute command in thread pool
-    loop = asyncio.get_event_loop()
+    # Check connection health first
+    if not check_ssh_connection(client):
+        del ssh_connections[conn_id]
+        return [TextContent(type="text", text=f"Connection lost: {conn_id}\nPlease reconnect with ssh_connect.")]
 
     def execute():
-        stdin, stdout, stderr = client.exec_command(command, timeout=timeout)
-        exit_code = stdout.channel.recv_exit_status()
-        return stdout.read().decode("utf-8", errors="replace"), stderr.read().decode("utf-8", errors="replace"), exit_code
+        # Use get_transport for more reliable command execution
+        transport = client.get_transport()
+        if not transport or not transport.is_active():
+            raise ConnectionError("SSH transport is not active")
 
-    stdout_text, stderr_text, exit_code = await loop.run_in_executor(None, execute)
+        channel = transport.open_session()
+        channel.settimeout(timeout)
+        channel.exec_command(command)
+
+        # Read output with proper timeout handling
+        stdout_data = b""
+        stderr_data = b""
+
+        # Wait for command to finish with timeout
+        start_time = time.time()
+        while not channel.exit_status_ready():
+            if time.time() - start_time > timeout:
+                channel.close()
+                raise TimeoutError(f"Command timed out after {timeout}s")
+
+            # Read available data to prevent buffer filling
+            if channel.recv_ready():
+                stdout_data += channel.recv(65536)
+            if channel.recv_stderr_ready():
+                stderr_data += channel.recv_stderr(65536)
+            time.sleep(0.1)
+
+        # Read remaining data
+        while channel.recv_ready():
+            stdout_data += channel.recv(65536)
+        while channel.recv_stderr_ready():
+            stderr_data += channel.recv_stderr(65536)
+
+        exit_code = channel.recv_exit_status()
+        channel.close()
+
+        return (
+            stdout_data.decode("utf-8", errors="replace"),
+            stderr_data.decode("utf-8", errors="replace"),
+            exit_code
+        )
+
+    try:
+        # Add extra buffer time for the async wrapper
+        stdout_text, stderr_text, exit_code = await run_with_timeout(execute, timeout=timeout + 10)
+    except TimeoutError as e:
+        return [TextContent(type="text", text=f"Error: {str(e)}")]
+    except ConnectionError as e:
+        del ssh_connections[conn_id]
+        return [TextContent(type="text", text=f"Connection error: {str(e)}\nPlease reconnect.")]
 
     result = f"Exit code: {exit_code}\n"
     if stdout_text:
@@ -735,16 +835,22 @@ async def handle_ssh_upload(args: dict[str, Any]) -> list[TextContent]:
 
     client = ssh_connections[conn_id]
 
-    loop = asyncio.get_event_loop()
+    if not check_ssh_connection(client):
+        del ssh_connections[conn_id]
+        return [TextContent(type="text", text=f"Connection lost: {conn_id}\nPlease reconnect.")]
 
     def upload():
         sftp = client.open_sftp()
+        sftp.get_channel().settimeout(60.0)
         sftp.put(local_path, remote_path)
         stat = sftp.stat(remote_path)
         sftp.close()
         return stat.st_size
 
-    size = await loop.run_in_executor(None, upload)
+    try:
+        size = await run_with_timeout(upload, timeout=120.0)
+    except TimeoutError:
+        return [TextContent(type="text", text=f"Upload timed out after 120s")]
 
     return [TextContent(type="text", text=f"Uploaded successfully!\n{local_path} -> {remote_path}\nSize: {size} bytes")]
 
@@ -760,15 +866,21 @@ async def handle_ssh_download(args: dict[str, Any]) -> list[TextContent]:
 
     client = ssh_connections[conn_id]
 
-    loop = asyncio.get_event_loop()
+    if not check_ssh_connection(client):
+        del ssh_connections[conn_id]
+        return [TextContent(type="text", text=f"Connection lost: {conn_id}\nPlease reconnect.")]
 
     def download():
         sftp = client.open_sftp()
+        sftp.get_channel().settimeout(60.0)
         sftp.get(remote_path, local_path)
         sftp.close()
         return os.path.getsize(local_path)
 
-    size = await loop.run_in_executor(None, download)
+    try:
+        size = await run_with_timeout(download, timeout=120.0)
+    except TimeoutError:
+        return [TextContent(type="text", text=f"Download timed out after 120s")]
 
     return [TextContent(type="text", text=f"Downloaded successfully!\n{remote_path} -> {local_path}\nSize: {size} bytes")]
 
@@ -808,14 +920,18 @@ async def handle_ssh_execute_background(args: dict[str, Any]) -> list[TextConten
 
     client = ssh_connections[conn_id]
 
+    if not check_ssh_connection(client):
+        del ssh_connections[conn_id]
+        return [TextContent(type="text", text=f"Connection lost: {conn_id}\nPlease reconnect.")]
+
     # Generate unique task ID and output file
     task_id = f"bg_{int(time.time())}_{len(ssh_background_tasks)}"
     output_file = f"/tmp/mcp_bg_{task_id}.log"
 
     # Run command in background with nohup, redirect output to file
-    bg_command = f"nohup bash -c '{command}' > {output_file} 2>&1 & echo $!"
-
-    loop = asyncio.get_event_loop()
+    # Escape single quotes in command
+    escaped_command = command.replace("'", "'\\''")
+    bg_command = f"nohup bash -c '{escaped_command}' > {output_file} 2>&1 & echo $!"
 
     def execute():
         stdin, stdout, stderr = client.exec_command(bg_command, timeout=30)
@@ -823,7 +939,7 @@ async def handle_ssh_execute_background(args: dict[str, Any]) -> list[TextConten
         return pid
 
     try:
-        pid = await loop.run_in_executor(None, execute)
+        pid = await run_with_timeout(execute, timeout=45.0)
 
         ssh_background_tasks[task_id] = {
             "connection_id": conn_id,
@@ -859,7 +975,9 @@ async def handle_ssh_check_background(args: dict[str, Any]) -> list[TextContent]
 
     client = ssh_connections[conn_id]
 
-    loop = asyncio.get_event_loop()
+    if not check_ssh_connection(client):
+        del ssh_connections[conn_id]
+        return [TextContent(type="text", text=f"Connection lost: {conn_id}\nPlease reconnect.")]
 
     def check_status():
         # Check if process is still running
@@ -877,7 +995,7 @@ async def handle_ssh_check_background(args: dict[str, Any]) -> list[TextContent]
         return is_running, output, total_lines
 
     try:
-        is_running, output, total_lines = await loop.run_in_executor(None, check_status)
+        is_running, output, total_lines = await run_with_timeout(check_status, timeout=60.0)
 
         status = "RUNNING" if is_running else "COMPLETED"
         elapsed = int(time.time() - task["started"])
@@ -892,6 +1010,8 @@ async def handle_ssh_check_background(args: dict[str, Any]) -> list[TextContent]
         result += f"\n--- Last {tail_lines} lines ---\n{output}"
 
         return [TextContent(type="text", text=result)]
+    except TimeoutError:
+        return [TextContent(type="text", text=f"Timeout checking task status")]
     except Exception as e:
         return [TextContent(type="text", text=f"Failed to check task status: {str(e)}")]
 
@@ -1005,14 +1125,20 @@ async def handle_serial_connect(args: dict[str, Any]) -> list[TextContent]:
     conn_id = f"{port}@{baudrate}"
 
     if conn_id in serial_connections:
-        return [TextContent(type="text", text=f"Already connected: {conn_id}")]
-
-    loop = asyncio.get_event_loop()
+        existing = serial_connections[conn_id]
+        if existing.is_open:
+            return [TextContent(type="text", text=f"Already connected: {conn_id}")]
+        else:
+            del serial_connections[conn_id]
 
     def connect():
         return open_serial_connection(port, baudrate, timeout)
 
-    ser = await loop.run_in_executor(None, connect)
+    try:
+        ser = await run_with_timeout(connect, timeout=15.0)
+    except TimeoutError:
+        return [TextContent(type="text", text=f"Timeout connecting to {port}")]
+
     serial_connections[conn_id] = ser
 
     return [
@@ -1132,11 +1258,10 @@ async def handle_serial_send(args: dict[str, Any]) -> list[TextContent]:
     ser = serial_connections[conn_id]
 
     if not ser.is_open:
+        del serial_connections[conn_id]
         return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
 
     payload = prepare_serial_payload(data, raw, line_ending)
-
-    loop = asyncio.get_event_loop()
 
     def send_and_read():
         # Clear input buffer before sending to get fresh response
@@ -1181,7 +1306,10 @@ async def handle_serial_send(args: dict[str, Any]) -> list[TextContent]:
             return response.decode("utf-8", errors="replace")
         return None
 
-    response = await loop.run_in_executor(None, send_and_read)
+    try:
+        response = await run_with_timeout(send_and_read, timeout=read_timeout + 5.0)
+    except TimeoutError:
+        return [TextContent(type="text", text=f"Timeout sending/reading serial data")]
 
     result = f"Sent: {repr(payload)}"
     if response is not None:
