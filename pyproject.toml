@@ -3,7 +3,22 @@ name = "mcp-remote-access"
 version = "0.1.0"
 description = "MCP server for SSH and UART remote device access"
 readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.10"
+authors = [
+    { name = "Adam Engelbrecht", email = "adam@rfingadam.com" }
+]
+keywords = ["mcp", "ssh", "uart", "serial", "remote-access", "embedded"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
     "mcp>=1.0.0",
     "paramiko>=3.4.0",
