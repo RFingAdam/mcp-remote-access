@@ -3,6 +3,7 @@
 
 import asyncio
 import concurrent.futures
+import json
 import os
 import time
 from typing import Any
@@ -372,6 +373,72 @@ def create_server() -> Server:
                 },
             ),
             Tool(
+                name="serial_send_bytes",
+                description=(
+                    "Send raw binary bytes to a serial port (no UTF-8 encoding, no line "
+                    "ending). Data is given as a hex string. Optionally reads back a "
+                    "fixed number of bytes and returns them as hex. Use for binary "
+                    "protocols like Nordic DTM (2-byte frames), HCI, or any wire "
+                    "protocol whose frames are not valid UTF-8."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "connection_id": {
+                            "type": "string",
+                            "description": "Connection ID from serial_connect",
+                        },
+                        "data": {
+                            "type": "string",
+                            "description": "Bytes to send, as a hex string (e.g. '0204' for 0x02 0x04). Whitespace and 0x prefixes are stripped.",
+                        },
+                        "read_response": {
+                            "type": "boolean",
+                            "description": "If true, read response bytes after sending (default: true)",
+                            "default": True,
+                        },
+                        "read_size": {
+                            "type": "integer",
+                            "description": "Number of bytes to read back (default: 2 — matches DTM event size). 0 means 'read whatever arrives within read_timeout'.",
+                            "default": 2,
+                        },
+                        "read_timeout": {
+                            "type": "number",
+                            "description": "Timeout for reading response in seconds (default: 1.0)",
+                            "default": 1.0,
+                        },
+                    },
+                    "required": ["connection_id", "data"],
+                },
+            ),
+            Tool(
+                name="serial_read_bytes",
+                description=(
+                    "Read raw binary bytes from a serial port and return them as a "
+                    "hex string. No UTF-8 decoding."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "connection_id": {
+                            "type": "string",
+                            "description": "Connection ID from serial_connect",
+                        },
+                        "size": {
+                            "type": "integer",
+                            "description": "Number of bytes to read. 0 means 'read whatever arrives within timeout'.",
+                            "default": 2,
+                        },
+                        "timeout": {
+                            "type": "number",
+                            "description": "Read timeout in seconds (default: 1.0)",
+                            "default": 1.0,
+                        },
+                    },
+                    "required": ["connection_id"],
+                },
+            ),
+            Tool(
                 name="serial_disconnect",
                 description="Close a serial port connection.",
                 inputSchema={
@@ -647,8 +714,12 @@ def create_server() -> Server:
                 return await handle_serial_connect_match(arguments)
             elif name == "serial_send":
                 return await handle_serial_send(arguments)
+            elif name == "serial_send_bytes":
+                return await handle_serial_send_bytes(arguments)
             elif name == "serial_read":
                 return await handle_serial_read(arguments)
+            elif name == "serial_read_bytes":
+                return await handle_serial_read_bytes(arguments)
             elif name == "serial_disconnect":
                 return await handle_serial_disconnect(arguments)
             elif name == "serial_list_connections":
@@ -1316,6 +1387,151 @@ async def handle_serial_send(args: dict[str, Any]) -> list[TextContent]:
         result += f"\n\n--- Response ---\n{response}"
 
     return [TextContent(type="text", text=result)]
+
+
+def _parse_hex_input(data: str) -> bytes:
+    """Tolerantly decode a hex string. Accepts 0x prefixes and whitespace separators."""
+    stripped = data.replace(" ", "").replace(",", "").replace("\n", "").replace("\t", "")
+    if stripped.startswith(("0x", "0X")):
+        stripped = stripped[2:]
+    if len(stripped) % 2 != 0:
+        raise ValueError(f"hex string has odd length: {data!r}")
+    return bytes.fromhex(stripped)
+
+
+async def handle_serial_send_bytes(args: dict[str, Any]) -> list[TextContent]:
+    """Send raw binary bytes to a serial port and optionally read back raw bytes.
+
+    Bypasses the UTF-8 encode/decode that serial_send applies. For binary
+    protocols like Nordic DTM (2-byte frames). Round-trip travels as hex.
+    """
+    conn_id = args["connection_id"]
+    raw_in = args["data"]
+    read_response = args.get("read_response", True)
+    read_size = int(args.get("read_size", 2))
+    read_timeout = float(args.get("read_timeout", 1.0))
+
+    if conn_id not in serial_connections:
+        return [TextContent(
+            type="text",
+            text=json.dumps({"status": "error", "message": f"not connected: {conn_id}"}),
+        )]
+
+    ser = serial_connections[conn_id]
+    if not ser.is_open:
+        del serial_connections[conn_id]
+        return [TextContent(
+            type="text",
+            text=json.dumps({"status": "error", "message": f"connection closed: {conn_id}"}),
+        )]
+
+    try:
+        tx_bytes = _parse_hex_input(raw_in)
+    except ValueError as e:
+        return [TextContent(
+            type="text",
+            text=json.dumps({"status": "error", "message": f"hex decode failed: {e}"}),
+        )]
+
+    def send_and_read() -> bytes:
+        ser.reset_input_buffer()
+        ser.write(tx_bytes)
+        ser.flush()
+        if not read_response:
+            return b""
+        # Read exactly read_size bytes, or whatever arrives within timeout if read_size == 0
+        old_timeout = ser.timeout
+        ser.timeout = read_timeout
+        try:
+            if read_size > 0:
+                return ser.read(read_size)
+            deadline = time.time() + read_timeout
+            buf = bytearray()
+            while time.time() < deadline:
+                waiting = ser.in_waiting
+                if waiting > 0:
+                    buf.extend(ser.read(waiting))
+                    time.sleep(0.01)
+                else:
+                    if buf:
+                        time.sleep(0.05)
+                        if ser.in_waiting == 0:
+                            break
+                    else:
+                        time.sleep(0.05)
+            return bytes(buf)
+        finally:
+            ser.timeout = old_timeout
+
+    try:
+        rx_bytes = await run_with_timeout(send_and_read, timeout=read_timeout + 5.0)
+    except TimeoutError:
+        return [TextContent(
+            type="text",
+            text=json.dumps({"status": "timeout", "tx_hex": tx_bytes.hex(), "tx_len": len(tx_bytes)}),
+        )]
+
+    payload = {
+        "status": "ok",
+        "tx_hex": tx_bytes.hex(),
+        "tx_len": len(tx_bytes),
+        "rx_hex": rx_bytes.hex() if rx_bytes else "",
+        "rx_len": len(rx_bytes) if rx_bytes else 0,
+    }
+    return [TextContent(type="text", text=json.dumps(payload))]
+
+
+async def handle_serial_read_bytes(args: dict[str, Any]) -> list[TextContent]:
+    """Read raw binary bytes from a serial port and return as hex."""
+    conn_id = args["connection_id"]
+    size = int(args.get("size", 2))
+    timeout = float(args.get("timeout", 1.0))
+
+    if conn_id not in serial_connections:
+        return [TextContent(
+            type="text",
+            text=json.dumps({"status": "error", "message": f"not connected: {conn_id}"}),
+        )]
+
+    ser = serial_connections[conn_id]
+    if not ser.is_open:
+        return [TextContent(
+            type="text",
+            text=json.dumps({"status": "error", "message": f"connection closed: {conn_id}"}),
+        )]
+
+    def read() -> bytes:
+        old_timeout = ser.timeout
+        ser.timeout = timeout
+        try:
+            if size > 0:
+                return ser.read(size)
+            deadline = time.time() + timeout
+            buf = bytearray()
+            while time.time() < deadline:
+                waiting = ser.in_waiting
+                if waiting > 0:
+                    buf.extend(ser.read(waiting))
+                    time.sleep(0.01)
+                else:
+                    if buf:
+                        time.sleep(0.05)
+                        if ser.in_waiting == 0:
+                            break
+                    else:
+                        time.sleep(0.05)
+            return bytes(buf)
+        finally:
+            ser.timeout = old_timeout
+
+    loop = asyncio.get_event_loop()
+    rx_bytes = await loop.run_in_executor(None, read)
+    payload = {
+        "status": "ok",
+        "rx_hex": rx_bytes.hex() if rx_bytes else "",
+        "rx_len": len(rx_bytes) if rx_bytes else 0,
+    }
+    return [TextContent(type="text", text=json.dumps(payload))]
 
 
 async def handle_serial_read(args: dict[str, Any]) -> list[TextContent]:
