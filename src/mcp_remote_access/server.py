@@ -33,8 +33,8 @@ async def run_with_timeout(func, timeout: float, *args, **kwargs):
             loop.run_in_executor(_executor, lambda: func(*args, **kwargs)),
             timeout=timeout
         )
-    except asyncio.TimeoutError:
-        raise TimeoutError(f"Operation timed out after {timeout}s")
+    except asyncio.TimeoutError as e:
+        raise TimeoutError(f"Operation timed out after {timeout}s") from e
     except asyncio.CancelledError:
         raise
 
@@ -921,7 +921,7 @@ async def handle_ssh_upload(args: dict[str, Any]) -> list[TextContent]:
     try:
         size = await run_with_timeout(upload, timeout=120.0)
     except TimeoutError:
-        return [TextContent(type="text", text=f"Upload timed out after 120s")]
+        return [TextContent(type="text", text="Upload timed out after 120s")]
 
     return [TextContent(type="text", text=f"Uploaded successfully!\n{local_path} -> {remote_path}\nSize: {size} bytes")]
 
@@ -951,7 +951,7 @@ async def handle_ssh_download(args: dict[str, Any]) -> list[TextContent]:
     try:
         size = await run_with_timeout(download, timeout=120.0)
     except TimeoutError:
-        return [TextContent(type="text", text=f"Download timed out after 120s")]
+        return [TextContent(type="text", text="Download timed out after 120s")]
 
     return [TextContent(type="text", text=f"Downloaded successfully!\n{remote_path} -> {local_path}\nSize: {size} bytes")]
 
@@ -1082,7 +1082,7 @@ async def handle_ssh_check_background(args: dict[str, Any]) -> list[TextContent]
 
         return [TextContent(type="text", text=result)]
     except TimeoutError:
-        return [TextContent(type="text", text=f"Timeout checking task status")]
+        return [TextContent(type="text", text="Timeout checking task status")]
     except Exception as e:
         return [TextContent(type="text", text=f"Failed to check task status: {str(e)}")]
 
@@ -1380,7 +1380,7 @@ async def handle_serial_send(args: dict[str, Any]) -> list[TextContent]:
     try:
         response = await run_with_timeout(send_and_read, timeout=read_timeout + 5.0)
     except TimeoutError:
-        return [TextContent(type="text", text=f"Timeout sending/reading serial data")]
+        return [TextContent(type="text", text="Timeout sending/reading serial data")]
 
     result = f"Sent: {repr(payload)}"
     if response is not None:
@@ -1988,7 +1988,7 @@ async def handle_serial_esp32_connect(args: dict[str, Any]) -> list[TextContent]
         ser = await loop.run_in_executor(None, connect_and_setup)
         serial_connections[conn_id] = ser
 
-        result = f"ESP32 connected successfully!\n"
+        result = "ESP32 connected successfully!\n"
         result += f"Connection ID: {conn_id}\n"
         result += f"Port: {port}\n"
         result += f"Baudrate: {baudrate}\n"
