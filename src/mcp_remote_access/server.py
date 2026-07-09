@@ -1186,7 +1186,7 @@ def is_port_alive(ser: serial.Serial) -> bool:
     if not ser.is_open:
         return False
     try:
-        ser.in_waiting
+        _ = ser.in_waiting  # read for its side effect: raises if the handle is dead
         return True
     except (OSError, serial.SerialException):
         return False
