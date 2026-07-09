@@ -30,10 +30,10 @@ The agent calls `serial_list_ports` (sees three /dev/ttyUSB* devices),
 then `serial_connect_match`:
 
 ```json
-{ "vid": 65540, "pid": 60000, "baud": 115200 }
+{ "vid": 4292, "pid": 60000, "baudrate": 115200 }
 ```
 
-(0x10c4 = 4292; 0xea60 = 60000.) Returns `connection_id: "uart-1"`.
+(0x10c4 = 4292; 0xea60 = 60000.) Returns `connection_id: "/dev/ttyUSB0@115200"`.
 
 ### Step 2 — log in and read boot args
 
@@ -43,14 +43,14 @@ then `serial_connect_match`:
 
 ```json
 {
-  "connection_id": "uart-1",
-  "sequence": [
-    { "expect": "login:",    "send": "root\n" },
-    { "expect": "Password:", "send": "summit\n" },
-    { "expect": "[#$] ",     "send": "printenv\n" },
-    { "expect": "[#$] ",     "send": "" }
+  "connection_id": "/dev/ttyUSB0@115200",
+  "steps": [
+    { "wait_for": "login:",    "send": "root\n" },
+    { "wait_for": "Password:", "send": "summit\n" },
+    { "wait_for": "[#$] ",     "send": "printenv\n" },
+    { "wait_for": "[#$] ",     "send": "" }
   ],
-  "timeout": 15
+  "default_timeout": 15
 }
 ```
 
@@ -79,7 +79,7 @@ The build takes ~8 minutes. You don't want to block the MCP channel.
   "key_path": "/home/me/.ssh/id_ed25519" }
 ```
 
-Returns `connection_id: "ssh-1"`.
+Returns `connection_id: "ci@build.lab.local:22"`.
 
 ### Step 2 — kick off the build async
 
@@ -87,22 +87,21 @@ Returns `connection_id: "ssh-1"`.
 
 ```json
 {
-  "connection_id": "ssh-1",
+  "connection_id": "ci@build.lab.local:22",
   "command": "cd /srv/build/firmware && make -j16 release"
 }
 ```
 
-via `ssh_execute_background` — returns `job_id: "bg-42"`. The MCP
-channel is free for other tools.
+via `ssh_execute_background` — returns a `task_id` (e.g.
+`bg_1748812345_0`) and the PID. The MCP channel is free for other
+tools.
 
 ### Step 3 — poll until done
 
 The agent calls `ssh_check_background` every ~60 s while doing other
-work (running tests on the bench, drafting docs, …). Eventually:
-
-```json
-{ "status": "done", "exit_code": 0, "stdout_tail": "...\nbuilt firmware-2026.05.bin\n" }
-```
+work (running tests on the bench, drafting docs, …). Eventually the
+`Status:` line in the response flips from `RUNNING` to `COMPLETED`,
+with the tail of the build log attached.
 
 ### Step 4 — pull the artifact
 
