@@ -792,7 +792,7 @@ async def handle_ssh_connect(args: dict[str, Any]) -> list[TextContent]:
         "auth_timeout": 30,
     }
 
-    if password:
+    if password is not None:
         connect_kwargs["password"] = password
     if key_path:
         connect_kwargs["key_filename"] = os.path.expanduser(key_path)
@@ -1173,6 +1173,25 @@ def open_serial_connection(port: str, baudrate: int, timeout: float) -> serial.S
     return ser
 
 
+def is_port_alive(ser: serial.Serial) -> bool:
+    """Check whether a pooled connection's OS handle is still usable.
+
+    ser.is_open only reflects that open() succeeded and close() hasn't been
+    called yet - it stays True even after the underlying handle is
+    invalidated by an external event (a physical USB replug is the common
+    case on Windows). in_waiting is a lightweight property read that still
+    touches the real handle, so it raises the same error a real read/write
+    would if the port is actually dead.
+    """
+    if not ser.is_open:
+        return False
+    try:
+        _ = ser.in_waiting  # read for its side effect: raises if the handle is dead
+        return True
+    except (OSError, serial.SerialException):
+        return False
+
+
 async def handle_serial_list_ports() -> list[TextContent]:
     """List available serial ports."""
     ports = serial.tools.list_ports.comports()
@@ -1197,10 +1216,13 @@ async def handle_serial_connect(args: dict[str, Any]) -> list[TextContent]:
 
     if conn_id in serial_connections:
         existing = serial_connections[conn_id]
-        if existing.is_open:
+        if is_port_alive(existing):
             return [TextContent(type="text", text=f"Already connected: {conn_id}")]
-        else:
-            del serial_connections[conn_id]
+        try:
+            existing.close()
+        except Exception:
+            pass
+        del serial_connections[conn_id]
 
     def connect():
         return open_serial_connection(port, baudrate, timeout)
@@ -1289,7 +1311,14 @@ async def handle_serial_connect_match(args: dict[str, Any]) -> list[TextContent]
     conn_id = f"{port_name}@{baudrate}"
 
     if conn_id in serial_connections:
-        return [TextContent(type="text", text=f"Already connected: {conn_id}")]
+        existing = serial_connections[conn_id]
+        if is_port_alive(existing):
+            return [TextContent(type="text", text=f"Already connected: {conn_id}")]
+        try:
+            existing.close()
+        except Exception:
+            pass
+        del serial_connections[conn_id]
 
     loop = asyncio.get_event_loop()
 
@@ -1328,7 +1357,7 @@ async def handle_serial_send(args: dict[str, Any]) -> list[TextContent]:
 
     ser = serial_connections[conn_id]
 
-    if not ser.is_open:
+    if not is_port_alive(ser):
         del serial_connections[conn_id]
         return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
 
@@ -1418,7 +1447,7 @@ async def handle_serial_send_bytes(args: dict[str, Any]) -> list[TextContent]:
         )]
 
     ser = serial_connections[conn_id]
-    if not ser.is_open:
+    if not is_port_alive(ser):
         del serial_connections[conn_id]
         return [TextContent(
             type="text",
@@ -1494,7 +1523,7 @@ async def handle_serial_read_bytes(args: dict[str, Any]) -> list[TextContent]:
         )]
 
     ser = serial_connections[conn_id]
-    if not ser.is_open:
+    if not is_port_alive(ser):
         return [TextContent(
             type="text",
             text=json.dumps({"status": "error", "message": f"connection closed: {conn_id}"}),
@@ -1545,7 +1574,7 @@ async def handle_serial_read(args: dict[str, Any]) -> list[TextContent]:
 
     ser = serial_connections[conn_id]
 
-    if not ser.is_open:
+    if not is_port_alive(ser):
         return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
 
     loop = asyncio.get_event_loop()
@@ -1607,7 +1636,7 @@ async def handle_serial_list_connections() -> list[TextContent]:
 
     lines = ["Active serial connections:"]
     for conn_id, ser in serial_connections.items():
-        lines.append(f"  - {conn_id} (open={ser.is_open})")
+        lines.append(f"  - {conn_id} (open={is_port_alive(ser)})")
 
     return [TextContent(type="text", text="\n".join(lines))]
 
@@ -1625,7 +1654,7 @@ async def handle_serial_set_dtr(args: dict[str, Any]) -> list[TextContent]:
 
     ser = serial_connections[conn_id]
 
-    if not ser.is_open:
+    if not is_port_alive(ser):
         return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
 
     loop = asyncio.get_event_loop()
@@ -1644,7 +1673,7 @@ async def handle_serial_set_rts(args: dict[str, Any]) -> list[TextContent]:
 
     ser = serial_connections[conn_id]
 
-    if not ser.is_open:
+    if not is_port_alive(ser):
         return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
 
     loop = asyncio.get_event_loop()
@@ -1663,7 +1692,7 @@ async def handle_serial_reset_device(args: dict[str, Any]) -> list[TextContent]:
 
     ser = serial_connections[conn_id]
 
-    if not ser.is_open:
+    if not is_port_alive(ser):
         return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
 
     loop = asyncio.get_event_loop()
@@ -1744,7 +1773,7 @@ async def handle_serial_flush(args: dict[str, Any]) -> list[TextContent]:
 
     ser = serial_connections[conn_id]
 
-    if not ser.is_open:
+    if not is_port_alive(ser):
         return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
 
     loop = asyncio.get_event_loop()
@@ -1777,7 +1806,7 @@ async def handle_serial_wait_for(args: dict[str, Any]) -> list[TextContent]:
 
     ser = serial_connections[conn_id]
 
-    if not ser.is_open:
+    if not is_port_alive(ser):
         return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
 
     loop = asyncio.get_event_loop()
@@ -1806,7 +1835,7 @@ async def handle_serial_expect(args: dict[str, Any]) -> list[TextContent]:
 
     ser = serial_connections[conn_id]
 
-    if not ser.is_open:
+    if not is_port_alive(ser):
         return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
 
     if not steps:
@@ -1864,7 +1893,7 @@ async def handle_serial_send_break(args: dict[str, Any]) -> list[TextContent]:
 
     ser = serial_connections[conn_id]
 
-    if not ser.is_open:
+    if not is_port_alive(ser):
         return [TextContent(type="text", text=f"Connection closed: {conn_id}")]
 
     loop = asyncio.get_event_loop()

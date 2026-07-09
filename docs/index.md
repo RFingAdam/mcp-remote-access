@@ -1,14 +1,13 @@
 # mcp-remote-access
 
-**SSH and serial-port control for embedded devices over MCP — log into a Raspberry Pi, talk to a UART, drive a USB-CDC console from your assistant.**
-**Drive it from your IDE, terminal, or AI agent and let the model run the lab bench for you.**
+SSH and serial-port control for embedded devices, exposed as MCP tools.
 
 ---
 
 ## What it is
 
 A thin MCP server that exposes **paramiko** (SSH) and **pyserial**
-(UART / serial) as MCP tools. 24 tools total across two transports,
+(UART / serial) as MCP tools. 26 tools total across two transports,
 no orchestration language — agent prompts handle higher-level logic.
 
 ## Install

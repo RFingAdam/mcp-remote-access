@@ -9,8 +9,7 @@
 [![MCP](https://img.shields.io/badge/MCP-server-A78BFA.svg)](https://modelcontextprotocol.io)
 [![eng-mcp-suite](https://img.shields.io/badge/eng--mcp--suite-member-22D3EE.svg)](https://github.com/RFingAdam/eng-mcp-suite)
 
-**SSH and serial-port control for embedded devices over MCP — log into a Raspberry Pi, talk to a UART, drive a USB-CDC console from your assistant.**
-**Drive it from your IDE, terminal, or AI agent and let the model run the lab bench for you.**
+**SSH and serial-port control for embedded devices, exposed as MCP tools.** Log into a Raspberry Pi, talk to a UART, drive a USB-CDC console from your assistant.
 
 [Quick start](#quick-start) ·
 [Tools](#tools) ·
@@ -24,30 +23,31 @@
 ## What is mcp-remote-access?
 
 `mcp-remote-access` is an MCP server that exposes SSH (over paramiko)
-and serial / UART (over pyserial) as MCP tools. It's the "give the
-agent root on the bench" MCP — once it's running, your assistant can
-log into a Pi, run commands, transfer files, open the serial console,
-send AT-style command sequences, and reset a device over DTR/RTS.
+and serial / UART (over pyserial) as MCP tools. Once it's running,
+an agent can log into a host over SSH, run commands, transfer files,
+open a serial console, send AT-style command sequences, and reset a
+device over DTR/RTS.
 
-It's deliberately thin: 24 tools, two transports, no orchestration
-language. Higher-level workflow logic lives in your agent's prompts.
+It's deliberately thin: 26 tools, two transports, no orchestration
+language. Higher-level workflow logic lives in the agent's prompts,
+not in this server.
 
-**What it does well:**
+A few things it handles that are easy to get wrong by hand:
 
-- 🤖 **AI-native via MCP.** First-class [Model Context Protocol](https://modelcontextprotocol.io)
-  server with **24 tools** across SSH and UART.
-- 🐍 **Embedded-friendly.** Connect to a serial port by **VID / PID /
-  serial / description** match — no more guessing `/dev/ttyUSB0` vs
-  `/dev/ttyUSB1`.
-- ⏳ **Background SSH commands.** Long-running commands (`make`,
-  `pytest`, `tcpdump`) run async via `ssh_execute_background`; poll
-  with `ssh_check_background`.
-- 🤝 **Prompt-aware UART.** `serial_expect` and `serial_wait_for`
-  handle login prompts, AT-style flows, and bootloader handshakes
-  without race conditions.
-- 🔌 **DTR / RTS control.** Hard-reset MCUs over USB-serial, send
-  break signals, hold the boot pin low — the usual embedded tricks.
-- 🔒 **AGPL-3.0-or-later.** Memory-only credentials, no on-disk session store.
+- Connect to a serial port by VID/PID/serial number/description
+  instead of guessing `/dev/ttyUSB0` vs `/dev/ttyUSB1`
+  (`serial_connect_match`).
+- Long-running SSH commands (builds, `tcpdump`, test runs) don't
+  block the MCP channel — `ssh_execute_background` returns a task ID,
+  `ssh_check_background` polls it.
+- `serial_expect`/`serial_wait_for` wait for a real pattern in the
+  stream instead of a fixed `sleep()`, which avoids the usual
+  "sent before the prompt was ready" race on login prompts and AT
+  flows.
+- DTR/RTS control for hard-resetting MCUs over USB-serial, plus
+  break-signal support.
+- SSH passwords are held in memory only and cleared on disconnect;
+  no on-disk session store.
 
 ---
 
@@ -61,25 +61,15 @@ cd mcp-remote-access
 uv pip install -e .
 ```
 
-### Two surfaces, same answer
+### Run it
 
-<table>
-<tr>
-<td valign="top" width="50%">
-
-**CLI**
-
-Run the MCP server directly (stdio):
+The server speaks MCP over stdio:
 
 ```bash
-uv run --directory /path/to/mcp-remote-access \
-  mcp-remote-access
+uv run --directory /path/to/mcp-remote-access mcp-remote-access
 ```
 
-</td>
-<td valign="top" width="50%">
-
-**Add to an MCP client**
+### Add it to an MCP client
 
 Codex CLI:
 
@@ -95,14 +85,7 @@ claude mcp add remote-access -- \
   uv run --directory /path/to/mcp-remote-access mcp-remote-access
 ```
 
-</td>
-</tr>
-<tr>
-<td colspan="2" valign="top">
-
-**MCP (Claude Desktop, Claude Code, Codex CLI, any MCP client)**
-
-Add to your client's config file:
+Or add it to a client config file directly:
 
 ```json
 {
@@ -115,23 +98,18 @@ Add to your client's config file:
 }
 ```
 
-Then ask your assistant:
+Then, from the assistant:
 
 > *"Connect to my Pi at vpn-ap.local as `pi` (password `raspberry`), run
 > `uname -a`, then `dmesg | tail -20`."*
 
-The agent calls `ssh_connect`, `ssh_execute` twice, and reports both
-outputs in plain text.
-
-</td>
-</tr>
-</table>
+That's `ssh_connect` followed by two `ssh_execute` calls.
 
 ---
 
 ## Tools
 
-24 MCP tools across two transports. Full reference in [`docs/tools.md`](docs/tools.md).
+26 MCP tools across two transports. Full reference in [`docs/tools.md`](docs/tools.md).
 
 ### SSH (9)
 
@@ -139,7 +117,7 @@ outputs in plain text.
 | -------------------------- | -------------------------------------------------------------------- |
 | `ssh_connect`              | Connect to a host via SSH (password or key auth)                     |
 | `ssh_execute`              | Run a command on a connected host (sync)                             |
-| `ssh_execute_background`   | Run a long-running command async, returns `job_id`                   |
+| `ssh_execute_background`   | Run a long-running command async, returns `task_id`                   |
 | `ssh_check_background`     | Check status / collect output of a background command                |
 | `ssh_list_background`      | List all active background commands                                  |
 | `ssh_upload`               | Upload a file via SFTP                                               |
@@ -147,7 +125,7 @@ outputs in plain text.
 | `ssh_disconnect`           | Close an SSH connection                                              |
 | `ssh_list_connections`     | Show active SSH connections                                          |
 
-### Serial / UART (15)
+### Serial / UART (17)
 
 | Tool                       | Purpose                                                              |
 | -------------------------- | -------------------------------------------------------------------- |
@@ -155,10 +133,12 @@ outputs in plain text.
 | `serial_connect`           | Connect by port name                                                 |
 | `serial_connect_match`     | Connect by VID / PID / serial / description match                    |
 | `serial_esp32_connect`     | ESP32-aware connect (BOOT/RESET sequence, auto-baud)                 |
-| `serial_send`              | Send data (with optional response read + configurable line ending)   |
+| `serial_send`              | Send text data (with optional response read + configurable line ending) |
+| `serial_send_bytes`        | Send raw bytes as hex (binary protocols — Nordic DTM, HCI, etc.)      |
 | `serial_read`              | Read available data                                                  |
+| `serial_read_bytes`        | Read raw bytes back as hex                                           |
 | `serial_wait_for`          | Wait for a pattern in the incoming stream                            |
-| `serial_expect`            | Expect / send sequences (login prompts, AT flows)                    |
+| `serial_expect`            | Wait/send step sequences (login prompts, AT flows)                   |
 | `serial_send_break`        | Send a break signal                                                  |
 | `serial_set_dtr`           | Set DTR line state                                                   |
 | `serial_set_rts`           | Set RTS line state                                                   |
@@ -190,24 +170,20 @@ for the full list of sibling MCPs and bundle definitions.
 
 ## Documentation
 
-- 📘 **[Quick Start](docs/index.md)** — install through first call.
-- 🛠️ **[Tool reference](docs/tools.md)** — every MCP tool, every argument.
-- 📐 **[Usage examples](docs/usage.md)** — practical end-to-end walkthroughs.
-- 🏗️ **[Architecture](docs/architecture.md)** — how this MCP fits in eng-mcp-suite.
+- [Quick Start](docs/index.md) — install through first call.
+- [Tool reference](docs/tools.md) — every MCP tool, every argument.
+- [Usage examples](docs/usage.md) — practical end-to-end walkthroughs.
+- [Architecture](docs/architecture.md) — how this MCP fits in eng-mcp-suite.
 
 ---
 
 ## Part of eng-mcp-suite
 
-<sub>This MCP server is part of</sub>
-
-[![eng-mcp-suite](https://img.shields.io/badge/eng--mcp--suite-engineering%20MCP%20catalog-22D3EE?style=for-the-badge)](https://github.com/RFingAdam/eng-mcp-suite)
-
-<sub>An open umbrella for engineering MCP servers across RF, EMC, PCB,
-signal integrity, EM simulation, and lab test. Same brand, same docs
-structure, designed to compose. See the
+This server is one piece of [eng-mcp-suite](https://github.com/RFingAdam/eng-mcp-suite),
+an umbrella of engineering MCP servers covering RF, EMC, PCB, signal
+integrity, EM simulation, and lab test. See the
 [full catalog](https://github.com/RFingAdam/eng-mcp-suite#whats-included)
-or jump to a sibling:</sub>
+or jump to a sibling:
 
 | Domain                      | Sibling MCPs                                                                 |
 | --------------------------- | ---------------------------------------------------------------------------- |
@@ -276,6 +252,6 @@ align with the eng-mcp-suite toolkit-wide AGPL move.
 
 <div align="center">
 
-<sub>Part of <a href="https://github.com/RFingAdam/eng-mcp-suite">eng-mcp-suite</a> — built for RF engineers, PCB designers, EMC labs, and AI agents.</sub>
+<sub>Part of <a href="https://github.com/RFingAdam/eng-mcp-suite">eng-mcp-suite</a>.</sub>
 
 </div>
