@@ -15,10 +15,10 @@ How `mcp-remote-access` is built, and how it composes with the rest of
 └───────────┼──────────────────────────────────────────────────────┘
             │
 ┌───────────▼──────────────────────────────────────────────────────┐
-│  Connection registries                                           │
-│  • SSHRegistry      — paramiko clients keyed by connection_id    │
-│  • SerialRegistry   — pyserial handles keyed by connection_id    │
-│  • BackgroundJobs   — async SSH command tracker (job_id)         │
+│  Module-level connection state (plain dicts, no registry class)  │
+│  • ssh_connections      — paramiko clients keyed by connection_id│
+│  • serial_connections   — pyserial handles keyed by connection_id│
+│  • ssh_background_tasks — async SSH command tracker (task_id)    │
 └──────────────────────────────────────────────────────────────────┘
             │
 ┌───────────▼──────────────────────────────────────────────────────┐
@@ -39,14 +39,14 @@ mcp-remote-access/
 ├── src/mcp_remote_access/
 │   ├── __init__.py
 │   ├── __main__.py
-│   └── server.py         ← all 24 tool definitions + dispatch
+│   └── server.py         ← all 26 tool definitions + dispatch
 ├── assets/               ← logo-banner.svg, logo.svg
 ├── docs/                 ← this docs/ directory
 ├── pyproject.toml
-└── LICENSE               ← Apache 2.0
+└── LICENSE               ← AGPL-3.0-or-later
 ```
 
-The server is intentionally compact — one server module owns all 24
+The server is intentionally compact — one server module owns all 26
 tools because they share connection registries and the surface area is
 small enough that splitting would add ceremony without value.
 
@@ -109,4 +109,6 @@ for full bundle definitions.
 - **`ssh_execute_background` for long commands.** A blocking
   `ssh_execute` would stall the MCP channel during a build. Background
   jobs return immediately and clients poll.
-- **Apache 2.0.** Compatible with downstream proprietary lab tooling.
+- **AGPL-3.0-or-later.** Matches the suite-wide relicense from
+  Apache-2.0 in v0.2.0 — downstream users who run a modified version as
+  a network service must share those modifications.
