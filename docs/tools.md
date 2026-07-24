@@ -217,7 +217,7 @@ Run a sequence of wait/send steps — each step is
   "connection_id": "uart-1",
   "steps": [
     { "wait_for": "login:",    "send": "root\n" },
-    { "wait_for": "Password:", "send": "summit\n" },
+    { "wait_for": "Password:", "send": "changeme\n" },
     { "wait_for": "[#$] ",     "send": "uname -a\n" }
   ],
   "default_timeout": 10
