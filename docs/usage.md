@@ -37,7 +37,7 @@ then `serial_connect_match`:
 
 ### Step 2 — log in and read boot args
 
-> *"Log in as `root` (password `summit`) and capture `printenv`."*
+> *"Log in as `root` (password `changeme`) and capture `printenv`."*
 
 `serial_expect`:
 
@@ -46,7 +46,7 @@ then `serial_connect_match`:
   "connection_id": "/dev/ttyUSB0@115200",
   "steps": [
     { "wait_for": "login:",    "send": "root\n" },
-    { "wait_for": "Password:", "send": "summit\n" },
+    { "wait_for": "Password:", "send": "changeme\n" },
     { "wait_for": "[#$] ",     "send": "printenv\n" },
     { "wait_for": "[#$] ",     "send": "" }
   ],
