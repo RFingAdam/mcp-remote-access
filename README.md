@@ -1,3 +1,9 @@
+<p align="center"><img src="docs/logo.svg" alt="RFingAdam — Security Research" width="300"></p>
+
+> ⚠️ **Authorized security testing only.** See [DISCLAIMER.md](./DISCLAIMER.md).
+
+---
+
 <div align="center">
 
 <img src="assets/logo-banner.svg" alt="mcp-remote-access — SSH and serial-port control for embedded devices over MCP" width="100%"/>
