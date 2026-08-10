@@ -11,9 +11,9 @@ from typing import Any
 import paramiko
 import serial
 import serial.tools.list_ports
-from mcp.server import Server
+from mcp.server import Server, ServerRequestContext
 from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool
+from mcp.types import CallToolRequestParams, CallToolResult, ListToolsRequest, ListToolsResult, TextContent, Tool
 
 # Store active connections
 ssh_connections: dict[str, paramiko.SSHClient] = {}
@@ -59,19 +59,14 @@ def configure_ssh_keepalive(client: paramiko.SSHClient):
         transport.set_keepalive(30)  # Send keepalive every 30 seconds
 
 
-def create_server() -> Server:
-    """Create and configure the MCP server."""
-    server = Server("mcp-remote-access")
-
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
-        """List all available tools."""
-        return [
+async def handle_list_tools(ctx: ServerRequestContext, params: ListToolsRequest) -> ListToolsResult:
+    """Handle list_tools request."""
+    tools = [
             # SSH Tools
             Tool(
                 name="ssh_connect",
                 description="Connect to a remote host via SSH. Returns a connection ID for subsequent commands.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "host": {
@@ -102,7 +97,7 @@ def create_server() -> Server:
             Tool(
                 name="ssh_execute",
                 description="Execute a command on a connected SSH host. Returns stdout, stderr, and exit code.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "connection_id": {
@@ -125,7 +120,7 @@ def create_server() -> Server:
             Tool(
                 name="ssh_upload",
                 description="Upload a file to the remote host via SFTP.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "connection_id": {
@@ -147,7 +142,7 @@ def create_server() -> Server:
             Tool(
                 name="ssh_download",
                 description="Download a file from the remote host via SFTP.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "connection_id": {
@@ -169,7 +164,7 @@ def create_server() -> Server:
             Tool(
                 name="ssh_disconnect",
                 description="Close an SSH connection.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "connection_id": {
@@ -183,7 +178,7 @@ def create_server() -> Server:
             Tool(
                 name="ssh_list_connections",
                 description="List all active SSH connections.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {},
                 },
@@ -191,7 +186,7 @@ def create_server() -> Server:
             Tool(
                 name="ssh_execute_background",
                 description="Execute a long-running command in the background. Returns a task ID and output file path. Use ssh_check_background to monitor progress.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "connection_id": {
@@ -209,7 +204,7 @@ def create_server() -> Server:
             Tool(
                 name="ssh_check_background",
                 description="Check status and get output from a background command. Returns whether it's still running and the latest output.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "task_id": {
@@ -228,7 +223,7 @@ def create_server() -> Server:
             Tool(
                 name="ssh_list_background",
                 description="List all background tasks and their status.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {},
                 },
@@ -237,7 +232,7 @@ def create_server() -> Server:
             Tool(
                 name="serial_list_ports",
                 description="List available serial ports on the system.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {},
                 },
@@ -245,7 +240,7 @@ def create_server() -> Server:
             Tool(
                 name="serial_connect",
                 description="Connect to a serial port. Returns a connection ID.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "port": {
@@ -269,7 +264,7 @@ def create_server() -> Server:
             Tool(
                 name="serial_connect_match",
                 description="Connect to a serial port by matching VID/PID/serial/description. Returns a connection ID.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "vid": {
@@ -313,7 +308,7 @@ def create_server() -> Server:
             Tool(
                 name="serial_send",
                 description="Send data to a serial port. Optionally wait for and return response.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "connection_id": {
@@ -351,7 +346,7 @@ def create_server() -> Server:
             Tool(
                 name="serial_read",
                 description="Read available data from a serial port.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "connection_id": {
@@ -381,7 +376,7 @@ def create_server() -> Server:
                     "protocols like Nordic DTM (2-byte frames), HCI, or any wire "
                     "protocol whose frames are not valid UTF-8."
                 ),
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "connection_id": {
@@ -417,7 +412,7 @@ def create_server() -> Server:
                     "Read raw binary bytes from a serial port and return them as a "
                     "hex string. No UTF-8 decoding."
                 ),
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "connection_id": {
@@ -441,7 +436,7 @@ def create_server() -> Server:
             Tool(
                 name="serial_disconnect",
                 description="Close a serial port connection.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "connection_id": {
@@ -455,7 +450,7 @@ def create_server() -> Server:
             Tool(
                 name="serial_list_connections",
                 description="List all active serial connections.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {},
                 },
@@ -464,7 +459,7 @@ def create_server() -> Server:
             Tool(
                 name="serial_set_dtr",
                 description="Set DTR (Data Terminal Ready) line state. Used for device reset on many boards.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "connection_id": {
@@ -482,7 +477,7 @@ def create_server() -> Server:
             Tool(
                 name="serial_set_rts",
                 description="Set RTS (Request To Send) line state. Used for bootloader entry on ESP32/STM32.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "connection_id": {
@@ -500,7 +495,7 @@ def create_server() -> Server:
             Tool(
                 name="serial_reset_device",
                 description="Reset an embedded device using DTR/RTS sequence. Supports ESP32, STM32, and generic reset.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "connection_id": {
@@ -520,7 +515,7 @@ def create_server() -> Server:
             Tool(
                 name="serial_flush",
                 description="Flush serial buffers (clear pending input/output data).",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "connection_id": {
@@ -544,7 +539,7 @@ def create_server() -> Server:
             Tool(
                 name="serial_wait_for",
                 description="Wait for a specific string/pattern in serial output. Useful for boot messages, prompts.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "connection_id": {
@@ -567,7 +562,7 @@ def create_server() -> Server:
             Tool(
                 name="serial_expect",
                 description="Wait for patterns and optionally send responses. Useful for login prompts and AT flows.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "connection_id": {
@@ -628,7 +623,7 @@ def create_server() -> Server:
             Tool(
                 name="serial_send_break",
                 description="Send a serial break signal. Used to interrupt U-Boot, enter debug modes.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "connection_id": {
@@ -647,7 +642,7 @@ def create_server() -> Server:
             Tool(
                 name="serial_esp32_connect",
                 description="Connect to ESP32 with automatic reset and boot wait. Handles the ESP32 boot sequence (74880 baud boot messages, then app at 115200). Resets the device and waits for it to be ready.",
-                inputSchema={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "port": {
@@ -682,71 +677,94 @@ def create_server() -> Server:
                     "required": ["port"],
                 },
             ),
-        ]
 
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-        """Handle tool calls."""
-        try:
-            if name == "ssh_connect":
-                return await handle_ssh_connect(arguments)
-            elif name == "ssh_execute":
-                return await handle_ssh_execute(arguments)
-            elif name == "ssh_upload":
-                return await handle_ssh_upload(arguments)
-            elif name == "ssh_download":
-                return await handle_ssh_download(arguments)
-            elif name == "ssh_disconnect":
-                return await handle_ssh_disconnect(arguments)
-            elif name == "ssh_list_connections":
-                return await handle_ssh_list_connections()
-            elif name == "ssh_execute_background":
-                return await handle_ssh_execute_background(arguments)
-            elif name == "ssh_check_background":
-                return await handle_ssh_check_background(arguments)
-            elif name == "ssh_list_background":
-                return await handle_ssh_list_background()
-            elif name == "serial_list_ports":
-                return await handle_serial_list_ports()
-            elif name == "serial_connect":
-                return await handle_serial_connect(arguments)
-            elif name == "serial_connect_match":
-                return await handle_serial_connect_match(arguments)
-            elif name == "serial_send":
-                return await handle_serial_send(arguments)
-            elif name == "serial_send_bytes":
-                return await handle_serial_send_bytes(arguments)
-            elif name == "serial_read":
-                return await handle_serial_read(arguments)
-            elif name == "serial_read_bytes":
-                return await handle_serial_read_bytes(arguments)
-            elif name == "serial_disconnect":
-                return await handle_serial_disconnect(arguments)
-            elif name == "serial_list_connections":
-                return await handle_serial_list_connections()
+    ]
+    return ListToolsResult(tools=tools)
+
+
+async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+    """Handle call_tool request."""
+    name = params.name
+    arguments = params.arguments
+
+    try:
+        result_content: list[TextContent] | None = None
+        if name == "ssh_connect":
+            result_content = await handle_ssh_connect(arguments)
+        elif name == "ssh_execute":
+            result_content = await handle_ssh_execute(arguments)
+        elif name == "ssh_upload":
+            result_content = await handle_ssh_upload(arguments)
+        elif name == "ssh_download":
+            result_content = await handle_ssh_download(arguments)
+        elif name == "ssh_disconnect":
+            result_content = await handle_ssh_disconnect(arguments)
+        elif name == "ssh_list_connections":
+            result_content = await handle_ssh_list_connections()
+        elif name == "ssh_execute_background":
+            result_content = await handle_ssh_execute_background(arguments)
+        elif name == "ssh_check_background":
+            result_content = await handle_ssh_check_background(arguments)
+        elif name == "ssh_list_background":
+            result_content = await handle_ssh_list_background()
+        elif name == "serial_list_ports":
+            result_content = await handle_serial_list_ports()
+        elif name == "serial_connect":
+            result_content = await handle_serial_connect(arguments)
+        elif name == "serial_connect_match":
+            result_content = await handle_serial_connect_match(arguments)
+        elif name == "serial_send":
+            result_content = await handle_serial_send(arguments)
+        elif name == "serial_send_bytes":
+            result_content = await handle_serial_send_bytes(arguments)
+        elif name == "serial_read":
+            result_content = await handle_serial_read(arguments)
+        elif name == "serial_read_bytes":
+            result_content = await handle_serial_read_bytes(arguments)
+        elif name == "serial_disconnect":
+            result_content = await handle_serial_disconnect(arguments)
+        elif name == "serial_list_connections":
+            result_content = await handle_serial_list_connections()
             # New hardware control tools
-            elif name == "serial_set_dtr":
-                return await handle_serial_set_dtr(arguments)
-            elif name == "serial_set_rts":
-                return await handle_serial_set_rts(arguments)
-            elif name == "serial_reset_device":
-                return await handle_serial_reset_device(arguments)
-            elif name == "serial_flush":
-                return await handle_serial_flush(arguments)
-            elif name == "serial_wait_for":
-                return await handle_serial_wait_for(arguments)
-            elif name == "serial_expect":
-                return await handle_serial_expect(arguments)
-            elif name == "serial_send_break":
-                return await handle_serial_send_break(arguments)
-            elif name == "serial_esp32_connect":
-                return await handle_serial_esp32_connect(arguments)
-            else:
-                return [TextContent(type="text", text=f"Unknown tool: {name}")]
-        except Exception as e:
-            return [TextContent(type="text", text=f"Error: {type(e).__name__}: {str(e)}")]
+        elif name == "serial_set_dtr":
+            result_content = await handle_serial_set_dtr(arguments)
+        elif name == "serial_set_rts":
+            result_content = await handle_serial_set_rts(arguments)
+        elif name == "serial_reset_device":
+            result_content = await handle_serial_reset_device(arguments)
+        elif name == "serial_flush":
+            result_content = await handle_serial_flush(arguments)
+        elif name == "serial_wait_for":
+            result_content = await handle_serial_wait_for(arguments)
+        elif name == "serial_expect":
+            result_content = await handle_serial_expect(arguments)
+        elif name == "serial_send_break":
+            result_content = await handle_serial_send_break(arguments)
+        elif name == "serial_esp32_connect":
+            result_content = await handle_serial_esp32_connect(arguments)
+        else:
+            result_content = [TextContent(type="text", text=f"Unknown tool: {name}")]
+            return CallToolResult(content=result_content if result_content else [])
+    except Exception as e:
+        return CallToolResult(content=[TextContent(type="text", text=f"Error: {type(e).__name__}: {str(e)}")])
+
+
+def register_handlers(server: Server) -> None:
+    """Register MCP 2.0 request handlers."""
+    server.add_request_handler("tools/list", ListToolsRequest, handle_list_tools)
+    server.add_request_handler("tools/call", CallToolRequestParams, handle_call_tool)
+
+
+def create_server() -> Server:
+    """Create and configure the MCP server."""
+    server = Server("mcp-remote-access")
+
+    # Register MCP 2.0 handlers
+    register_handlers(server)
 
     return server
+
+
 
 
 # SSH Handlers

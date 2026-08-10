@@ -20,7 +20,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "mcp>=1.0.0,<2.0.0",
+    "mcp>=2.0.0",
     "paramiko>=3.4.0",
     "pyserial>=3.5",
 ]
