@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of a clean reconnect. Added `is_port_alive()`, which probes
   `in_waiting` before trusting the handle, and applied it everywhere the
   code previously checked `is_open` directly.
+- `LICENSE` and `NOTICE` still shipped the Apache-2.0 text left over
+  from before the 0.2.0 relicense — `pyproject.toml`'s
+  `license = "AGPL-3.0-or-later"`, its trove classifier, and the
+  README badge/license section were already correct, but the actual
+  license file was not updated in that release. Swapped `LICENSE` to
+  the GNU AGPLv3 text and `NOTICE` to match.
 
 ### Docs
 - Corrected several tool-reference entries that had drifted from the
