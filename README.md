@@ -250,6 +250,15 @@ Contributions are welcome.
 [AGPL-3.0-or-later](LICENSE). Relicensed from Apache-2.0 in v0.2.0 to
 align with the eng-mcp-suite toolkit-wide AGPL move.
 
+## Commercial licensing
+
+This project is licensed under AGPL-3.0-or-later. A commercial license —
+for embedding in a closed-source product, hosting as a paid service
+without AGPL's share-back obligations, or proprietary redistribution —
+is available on a case-by-case basis. See [eng-mcp-suite's licensing
+policy](https://github.com/RFingAdam/eng-mcp-suite/blob/main/LICENSE_SUMMARY.md#commercial-licensing)
+or open an issue and tag `@RFingAdam`.
+
 ## Acknowledgments
 
 - **[paramiko](https://www.paramiko.org/)** — SSH transport.
