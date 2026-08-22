@@ -6,8 +6,8 @@
   for current version and license.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 260"
-     role="img" aria-label="mcp-remote-access — SSH and serial-port control for embedded devices over MCP">
-  <title>mcp-remote-access — SSH and serial-port control for embedded devices over MCP</title>
+     role="img" aria-label="mcp-remote-access: SSH and serial-port control for embedded devices over MCP">
+  <title>mcp-remote-access: SSH and serial-port control for embedded devices over MCP</title>
 
   <rect width="1280" height="260" fill="#0F172A"/>
 

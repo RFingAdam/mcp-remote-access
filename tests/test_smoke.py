@@ -1,6 +1,6 @@
 """Smoke tests for mcp-remote-access.
 
-These don't open any SSH/serial connections — they verify the package and
+These don't open any SSH/serial connections. They verify the package and
 MCP server module import and that the server factory builds and registers
 its tool surface without error.
 """

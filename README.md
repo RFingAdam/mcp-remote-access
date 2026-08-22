@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/logo.svg" alt="RFingAdam — Security Research" width="300"></p>
+<p align="center"><img src="docs/logo.svg" alt="RFingAdam: Security Research" width="300"></p>
 
 > ⚠️ **Authorized security testing only.** See [DISCLAIMER.md](./DISCLAIMER.md).
 
@@ -6,7 +6,7 @@
 
 <div align="center">
 
-<img src="assets/logo-banner.svg" alt="mcp-remote-access — SSH and serial-port control for embedded devices over MCP" width="100%"/>
+<img src="assets/logo-banner.svg" alt="mcp-remote-access: SSH and serial-port control for embedded devices over MCP" width="100%"/>
 
 <br/>
 
@@ -44,7 +44,7 @@ A few things it handles that are easy to get wrong by hand:
   instead of guessing `/dev/ttyUSB0` vs `/dev/ttyUSB1`
   (`serial_connect_match`).
 - Long-running SSH commands (builds, `tcpdump`, test runs) don't
-  block the MCP channel — `ssh_execute_background` returns a task ID,
+  block the MCP channel: `ssh_execute_background` returns a task ID,
   `ssh_check_background` polls it.
 - `serial_expect`/`serial_wait_for` wait for a real pattern in the
   stream instead of a fixed `sleep()`, which avoids the usual
@@ -140,7 +140,7 @@ That's `ssh_connect` followed by two `ssh_execute` calls.
 | `serial_connect_match`     | Connect by VID / PID / serial / description match                    |
 | `serial_esp32_connect`     | ESP32-aware connect (BOOT/RESET sequence, auto-baud)                 |
 | `serial_send`              | Send text data (with optional response read + configurable line ending) |
-| `serial_send_bytes`        | Send raw bytes as hex (binary protocols — Nordic DTM, HCI, etc.)      |
+| `serial_send_bytes`        | Send raw bytes as hex (binary protocols: Nordic DTM, HCI, etc.)      |
 | `serial_read`              | Read available data                                                  |
 | `serial_read_bytes`        | Read raw bytes back as hex                                           |
 | `serial_wait_for`          | Wait for a pattern in the incoming stream                            |
@@ -160,10 +160,10 @@ That's `ssh_connect` followed by two `ssh_execute` calls.
 `mcp-remote-access` fits in the following [eng-mcp-suite](https://github.com/RFingAdam/eng-mcp-suite)
 workflow bundles:
 
-- **`lab-automation`** — pair with `mcp-rs-spectrum-analyzer`,
+- **`lab-automation`**: pair with `mcp-rs-spectrum-analyzer`,
   `mcp-rs-siggen`, `copper-mountain-vna-mcp` to fully script a
   bench (DUT login over SSH or UART, lab gear over SCPI).
-- **`embedded-bringup`** — `serial_connect_match` + `serial_expect` +
+- **`embedded-bringup`**: `serial_connect_match` + `serial_expect` +
   `ssh_upload` for boot-loader interaction and image flashing.
 
 Part of [eng-mcp-suite](https://github.com/RFingAdam/eng-mcp-suite).
@@ -176,10 +176,10 @@ for the full list of sibling MCPs and bundle definitions.
 
 ## Documentation
 
-- [Quick Start](docs/index.md) — install through first call.
-- [Tool reference](docs/tools.md) — every MCP tool, every argument.
-- [Usage examples](docs/usage.md) — practical end-to-end walkthroughs.
-- [Architecture](docs/architecture.md) — how this MCP fits in eng-mcp-suite.
+- [Quick Start](docs/index.md): install through first call.
+- [Tool reference](docs/tools.md). Every MCP tool, every argument.
+- [Usage examples](docs/usage.md): practical end-to-end walkthroughs.
+- [Architecture](docs/architecture.md): how this MCP fits in eng-mcp-suite.
 
 ---
 
@@ -195,8 +195,8 @@ or jump to a sibling:
 | --------------------------- | ---------------------------------------------------------------------------- |
 | **RF / Transmission lines** | [lineforge](https://github.com/RFingAdam/lineforge)                          |
 | **EMC regulatory**          | [mcp-emc-regulations](https://github.com/RFingAdam/mcp-emc-regulations)      |
-| **PCB / SI**                | mcp-pcb-emcopilot *(private — public soon)*                                  |
-| **EM simulation**           | mcp-openems, mcp-nec2-antenna *(private — public soon)*                      |
+| **PCB / SI**                | mcp-pcb-emcopilot *(private: public soon)*                                  |
+| **EM simulation**           | mcp-openems, mcp-nec2-antenna *(private: public soon)*                      |
 | **Diagrams**                | [drawio-engineering-mcp](https://github.com/RFingAdam/drawio-engineering-mcp) |
 | **3D / rendering**          | [mcp-blender](https://github.com/RFingAdam/mcp-blender)                      |
 | **Remote access**           | **mcp-remote-access** *(this repo)*                                          |
@@ -211,24 +211,24 @@ or jump to a sibling:
 - Connections are session-scoped; the server does not persist a
   session store on disk.
 - Use SSH keys where possible.
-- The MCP server runs over stdio — it only accepts connections from the
+- The MCP server runs over stdio. It only accepts connections from the
   local MCP client, never from the network.
 
 ---
 
 ## Troubleshooting
 
-**SSH connection issues** — verify the host is reachable
+**SSH connection issues**: verify the host is reachable
 (`ping vpn-ap.local`), that SSH is listening on the target
 (`ssh pi@vpn-ap.local` from the same shell), and that credentials are
 correct.
 
-**Serial port issues** — check port permissions
+**Serial port issues**. Check port permissions
 (`ls -la /dev/ttyUSB*`), add your user to the `dialout` group
 (`sudo usermod -a -G dialout $USER` and re-login), and confirm the
 device is present (`dmesg | tail`).
 
-**VID/PID match selects wrong device** — `serial_connect_match` returns
+**VID/PID match selects wrong device**: `serial_connect_match` returns
 the first hit; pair the match on `description` or `serial_number` to
 disambiguate.
 
@@ -241,7 +241,7 @@ Contributions are welcome.
 1. **Pick a [GitHub issue](https://github.com/RFingAdam/mcp-remote-access/issues)**.
 2. **Fork + branch** (`feature/your-thing` or `fix/your-bug`).
 3. **Run tests** (`uv run pytest`) if present.
-4. **Open a PR** — link the issue, request review.
+4. **Open a PR**: link the issue, request review.
 
 ---
 
@@ -252,18 +252,18 @@ align with the eng-mcp-suite toolkit-wide AGPL move.
 
 ## Commercial licensing
 
-This project is licensed under AGPL-3.0-or-later. A commercial license —
-for embedding in a closed-source product, hosting as a paid service
-without AGPL's share-back obligations, or proprietary redistribution —
+This project is licensed under AGPL-3.0-or-later. A commercial license
+(for embedding in a closed-source product, hosting as a paid service
+without AGPL's share-back obligations, or proprietary redistribution)
 is available on a case-by-case basis. See [eng-mcp-suite's licensing
 policy](https://github.com/RFingAdam/eng-mcp-suite/blob/main/LICENSE_SUMMARY.md#commercial-licensing)
 or open an issue and tag `@RFingAdam`.
 
 ## Acknowledgments
 
-- **[paramiko](https://www.paramiko.org/)** — SSH transport.
-- **[pyserial](https://pyserial.readthedocs.io/)** — serial / UART transport.
-- **The MCP working group** — for the [Model Context Protocol](https://modelcontextprotocol.io) specification.
+- **[paramiko](https://www.paramiko.org/)**: SSH transport.
+- **[pyserial](https://pyserial.readthedocs.io/)**: serial / UART transport.
+- **The MCP working group**: for the [Model Context Protocol](https://modelcontextprotocol.io) specification.
 
 <div align="center">
 

@@ -16,9 +16,9 @@ How `mcp-remote-access` is built, and how it composes with the rest of
             │
 ┌───────────▼──────────────────────────────────────────────────────┐
 │  Module-level connection state (plain dicts, no registry class)  │
-│  • ssh_connections      — paramiko clients keyed by connection_id│
-│  • serial_connections   — pyserial handles keyed by connection_id│
-│  • ssh_background_tasks — async SSH command tracker (task_id)    │
+│  • ssh_connections     : paramiko clients keyed by connection_id│
+│  • serial_connections  : pyserial handles keyed by connection_id│
+│  • ssh_background_tasks: async SSH command tracker (task_id)    │
 └──────────────────────────────────────────────────────────────────┘
             │
 ┌───────────▼──────────────────────────────────────────────────────┐
@@ -46,14 +46,14 @@ mcp-remote-access/
 └── LICENSE               ← AGPL-3.0-or-later
 ```
 
-The server is intentionally compact — one server module owns all 26
+The server is intentionally compact. One server module owns all 26
 tools because they share connection registries and the surface area is
 small enough that splitting would add ceremony without value.
 
 ## Position in eng-mcp-suite
 
 `mcp-remote-access` sits in the **transport / lab-automation** layer of
-the engineering MCP stack. It does not measure or compute — it gives
+the engineering MCP stack. It does not measure or compute. It gives
 the agent shell access and serial access so other tools (or human
 muscle memory) can drive a target.
 
@@ -76,9 +76,9 @@ muscle memory) can drive a target.
 
 ### Feeds / consumes
 
-- **Feeds**: nothing in the suite directly — output is arbitrary
+- **Feeds**: nothing in the suite directly: output is arbitrary
   shell / UART data that an agent interprets.
-- **Consumes**: nothing in the suite — credentials and ports come from
+- **Consumes**: nothing in the suite: credentials and ports come from
   the user prompt.
 
 ### Workflow bundles
@@ -110,5 +110,5 @@ for full bundle definitions.
   `ssh_execute` would stall the MCP channel during a build. Background
   jobs return immediately and clients poll.
 - **AGPL-3.0-or-later.** Matches the suite-wide relicense from
-  Apache-2.0 in v0.2.0 — downstream users who run a modified version as
+  Apache-2.0 in v0.2.0: downstream users who run a modified version as
   a network service must share those modifications.

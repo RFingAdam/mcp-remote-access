@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `in_waiting` before trusting the handle, and applied it everywhere the
   code previously checked `is_open` directly.
 - `LICENSE` and `NOTICE` still shipped the Apache-2.0 text left over
-  from before the 0.2.0 relicense — `pyproject.toml`'s
+  from before the 0.2.0 relicense: `pyproject.toml`'s
   `license = "AGPL-3.0-or-later"`, its trove classifier, and the
   README badge/license section were already correct, but the actual
   license file was not updated in that release. Swapped `LICENSE` to
@@ -31,10 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Corrected several tool-reference entries that had drifted from the
   actual `server.py` schemas (tool count, `serial_connect`'s real
   arguments, `serial_expect`'s `steps`/`wait_for` shape,
-  `ssh_execute_background`'s `task_id`, two undocumented tools —
+  `ssh_execute_background`'s `task_id`, two undocumented tools,
   `serial_send_bytes`/`serial_read_bytes`).
 
-## [0.2.0] — 2026-05-13
+## [0.2.0]: 2026-05-13
 
 ### Changed
 - **License: Apache-2.0 → AGPL-3.0-or-later.** Aligns with the

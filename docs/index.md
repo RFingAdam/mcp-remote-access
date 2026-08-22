@@ -8,7 +8,7 @@ SSH and serial-port control for embedded devices, exposed as MCP tools.
 
 A thin MCP server that exposes **paramiko** (SSH) and **pyserial**
 (UART / serial) as MCP tools. 26 tools total across two transports,
-no orchestration language — agent prompts handle higher-level logic.
+no orchestration language: agent prompts handle higher-level logic.
 
 ## Install
 
@@ -53,13 +53,13 @@ uv pip install -e .
 
 ## Where to next
 
-- [Tool reference](tools.md) — every MCP tool with arguments
-- [Usage examples](usage.md) — SSH session and UART AT-flow walkthroughs
-- [Architecture](architecture.md) — paramiko + pyserial layout
+- [Tool reference](tools.md). Every MCP tool with arguments
+- [Usage examples](usage.md): SSH session and UART AT-flow walkthroughs
+- [Architecture](architecture.md): paramiko + pyserial layout
 
 ---
 
 !!! note "Part of eng-mcp-suite"
-    This MCP server is part of [eng-mcp-suite](https://github.com/RFingAdam/eng-mcp-suite) —
+    This MCP server is part of [eng-mcp-suite](https://github.com/RFingAdam/eng-mcp-suite),
     an umbrella of engineering MCP servers. `mcp-remote-access` is the
     bench-control / lab-automation transport for the family.

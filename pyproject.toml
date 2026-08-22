@@ -54,9 +54,9 @@ line-length = 120
 select = ["E", "F", "W", "I", "UP", "B"]
 ignore = [
     "E501",   # line too long
-    "E741",   # ambiguous variable names — common in engineering formulas
+    "E741",   # ambiguous variable names: common in engineering formulas
     "UP006",  # use X | Y instead of Union (kept for older-Python compatibility)
     "UP045",  # use X | Y instead of Optional
-    "F401",   # imported but unused — re-exports / availability probes
-    "F841",   # local variable assigned but never used — intermediate values
+    "F401",   # imported but unused: re-exports / availability probes
+    "F841",   # local variable assigned but never used: intermediate values
 ]
