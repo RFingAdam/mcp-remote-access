@@ -394,7 +394,7 @@ async def handle_list_tools(ctx: ServerRequestContext, params: ListToolsRequest)
                         },
                         "read_size": {
                             "type": "integer",
-                            "description": "Number of bytes to read back (default: 2 — matches DTM event size). 0 means 'read whatever arrives within read_timeout'.",
+                            "description": "Number of bytes to read back (default: 2, matches DTM event size). 0 means 'read whatever arrives within read_timeout'.",
                             "default": 2,
                         },
                         "read_timeout": {
