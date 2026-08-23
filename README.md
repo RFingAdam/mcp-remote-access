@@ -250,6 +250,12 @@ Contributions are welcome.
 [AGPL-3.0-or-later](LICENSE). Relicensed from Apache-2.0 in v0.2.0 to
 align with the eng-mcp-suite toolkit-wide AGPL move.
 
+## Brand assets
+
+The project name and the logo files in this repository are not part of the licensed
+work. The licence above grants no permission to use them, except as needed to describe
+the origin of the work.
+
 ## Commercial licensing
 
 This project is licensed under AGPL-3.0-or-later. A commercial license
