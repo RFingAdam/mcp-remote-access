@@ -744,7 +744,7 @@ async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestPar
             result_content = await handle_serial_esp32_connect(arguments)
         else:
             result_content = [TextContent(type="text", text=f"Unknown tool: {name}")]
-            return CallToolResult(content=result_content if result_content else [])
+        return CallToolResult(content=result_content if result_content else [])
     except Exception as e:
         return CallToolResult(content=[TextContent(type="text", text=f"Error: {type(e).__name__}: {str(e)}")])
 
