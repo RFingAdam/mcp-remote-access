@@ -1,6 +1,6 @@
 <p align="center"><img src="docs/logo.svg" alt="RFingAdam: Security Research" width="300"></p>
 
-> ⚠️ **Authorized security testing only.** See [DISCLAIMER.md](./DISCLAIMER.md).
+> **Authorized security testing only.** See [DISCLAIMER.md](./DISCLAIMER.md).
 
 ---
 
