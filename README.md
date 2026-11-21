@@ -180,6 +180,8 @@ for the full list of sibling MCPs and bundle definitions.
 - [Tool reference](docs/tools.md). Every MCP tool, every argument.
 - [Usage examples](docs/usage.md): practical end-to-end walkthroughs.
 - [Architecture](docs/architecture.md): how this MCP fits in eng-mcp-suite.
+- [Agent rules](docs/AGENT_RULES.md): DUT SSH/UART goes through this MCP; fix it rather than bypassing.
+- [Known issues](docs/KNOWN_ISSUES.md): log a temporary bypass here.
 
 ---
 
