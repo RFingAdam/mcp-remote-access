@@ -56,6 +56,8 @@ uv pip install -e .
 - [Tool reference](tools.md). Every MCP tool with arguments
 - [Usage examples](usage.md): SSH session and UART AT-flow walkthroughs
 - [Architecture](architecture.md): paramiko + pyserial layout
+- [Agent rules](AGENT_RULES.md): DUT SSH/UART goes through this MCP; fix it rather than bypassing
+- [Known issues](KNOWN_ISSUES.md): log a temporary bypass here
 
 ---
 
